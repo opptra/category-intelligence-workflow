@@ -1,0 +1,58 @@
+{
+  "source": "our-products",
+  "category": "Curtains & Drapes",
+  "domain": "www.amazon.in",
+  "total_found": 5,
+  "items": [
+    {
+      "rank": 1,
+      "asin": "B0F23VGBP6",
+      "url": "https://www.amazon.in/dp/B0F23VGBP6",
+      "domain": "www.amazon.in",
+      "category": "Curtains & Drapes",
+      "label": "Product 1",
+      "source": "our-products",
+      "scraped_at": "2026-07-07T11:50:58.848Z"
+    },
+    {
+      "rank": 2,
+      "asin": "B0CHMK1KPC",
+      "url": "https://www.amazon.in/dp/B0CHMK1KPC",
+      "domain": "www.amazon.in",
+      "category": "Curtains & Drapes",
+      "label": "Product 2",
+      "source": "our-products",
+      "scraped_at": "2026-07-07T11:50:58.848Z"
+    },
+    {
+      "rank": 3,
+      "asin": "B0CSKKJ2QR",
+      "url": "https://www.amazon.in/dp/B0CSKKJ2QR",
+      "domain": "www.amazon.in",
+      "category": "Curtains & Drapes",
+      "label": "Product 3",
+      "source": "our-products",
+      "scraped_at": "2026-07-07T11:50:58.848Z"
+    },
+    {
+      "rank": 4,
+      "asin": "B0DRVZDZCH",
+      "url": "https://www.amazon.in/dp/B0DRVZDZCH",
+      "domain": "www.amazon.in",
+      "category": "Curtains & Drapes",
+      "label": "Product 4",
+      "source": "our-products",
+      "scraped_at": "2026-07-07T11:50:58.848Z"
+    },
+    {
+      "rank": 5,
+      "asin": "B0F5MV2LFM",
+      "url": "https://www.amazon.in/dp/B0F5MV2LFM",
+      "domain": "www.amazon.in",
+      "category": "Curtains & Drapes",
+      "label": "Product 5",
+      "source": "our-products",
+      "scraped_at": "2026-07-07T11:50:58.848Z"
+    }
+  ]
+}

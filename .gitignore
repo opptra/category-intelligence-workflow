@@ -1,0 +1,11 @@
+# Dependencies
+node_modules/
+
+# Amazon session cookies (sensitive — use export-cookies.js locally)
+amazon_cookies.json
+
+# macOS
+.DS_Store
+
+# Debug artifacts
+*.png

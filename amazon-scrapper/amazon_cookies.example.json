@@ -1,0 +1,34 @@
+[
+  {
+    "name": "session-id",
+    "value": "PASTE_YOUR_SESSION_ID_HERE",
+    "domain": ".amazon.in",
+    "path": "/",
+    "secure": true,
+    "httpOnly": false
+  },
+  {
+    "name": "ubid-acbin",
+    "value": "PASTE_YOUR_UBID_HERE",
+    "domain": ".amazon.in",
+    "path": "/",
+    "secure": true,
+    "httpOnly": false
+  },
+  {
+    "name": "at-acbin",
+    "value": "PASTE_YOUR_AT_TOKEN_HERE",
+    "domain": ".amazon.in",
+    "path": "/",
+    "secure": true,
+    "httpOnly": true
+  },
+  {
+    "name": "sess-at-acbin",
+    "value": "PASTE_YOUR_SESS_AT_TOKEN_HERE",
+    "domain": ".amazon.in",
+    "path": "/",
+    "secure": true,
+    "httpOnly": true
+  }
+]
