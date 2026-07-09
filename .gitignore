@@ -1,6 +1,10 @@
 # Dependencies
 node_modules/
 
+# Local secrets
+.env
+catalog-analysis/.env
+
 # Amazon session cookies (sensitive — use export-cookies.js locally)
 amazon-scrapper/amazon_cookies.json
 

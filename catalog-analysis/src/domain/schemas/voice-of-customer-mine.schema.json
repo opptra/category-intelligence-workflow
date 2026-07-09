@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["signals"],
+  "properties": {
+    "signals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["phrase", "sentiment", "relevance", "mention_count"],
+        "properties": {
+          "phrase": { "type": "string" },
+          "sentiment": {
+            "type": "string",
+            "enum": ["praise", "complaint", "objection", "neutral"]
+          },
+          "relevance": {
+            "type": "string",
+            "enum": ["high", "medium", "low"]
+          },
+          "mention_count": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "minItems": 1
+    },
+    "themes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "praise": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "complaints": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "objections": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "category_lexicon", "voice_of_customer"],
+  "properties": {
+    "summary": {
+      "type": "string",
+      "description": "One paragraph on what winning listings share and what buyers care about"
+    },
+    "category_lexicon": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observations", "terms"],
+      "properties": {
+        "observations": {
+          "type": "string",
+          "description": "How leaders distribute seller vocabulary across title, bullets, A+, specs"
+        },
+        "terms": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["term", "relevance"],
+            "properties": {
+              "term": { "type": "string" },
+              "relevance": {
+                "type": "string",
+                "enum": ["high", "medium", "low"]
+              }
+            }
+          }
+        }
+      }
+    },
+    "voice_of_customer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observations", "signals"],
+      "properties": {
+        "observations": {
+          "type": "string"
+        },
+        "signals": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["phrase", "sentiment", "relevance", "mention_count"],
+            "properties": {
+              "phrase": { "type": "string" },
+              "sentiment": {
+                "type": "string",
+                "enum": ["praise", "complaint", "objection", "neutral"]
+              },
+              "relevance": {
+                "type": "string",
+                "enum": ["high", "medium", "low"]
+              },
+              "mention_count": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

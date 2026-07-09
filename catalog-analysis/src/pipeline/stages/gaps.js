@@ -1,4 +1,5 @@
 const { SCOPED_ATTRIBUTES } = require('../../domain/attributes');
+const { requireNumber } = require('../../utils/assert');
 
 function avg(values) {
   const nums = values.filter(Number.isFinite);
@@ -96,7 +97,7 @@ function computeInternalGaps({ ourMetrics, categoryStandard, visualStandard, our
     'inconsistent pack wording in title'
   ]);
 
-  setGap('1.2', gapRatio(ourAvg.bullet_count, std.bullet_norms?.median_count || 5), [
+  setGap('1.2', gapRatio(ourAvg.bullet_count, requireNumber(std.bullet_norms.median_count, 'bullet median_count')), [
     'bullets repeat specs without benefit framing',
     'missing recurring topic coverage'
   ]);
@@ -111,7 +112,7 @@ function computeInternalGaps({ ourMetrics, categoryStandard, visualStandard, our
   setGap('2.4', 0.4, ['insufficient lifestyle context shots']);
   setGap('2.5', 0.5, ['no size/measurement guide image']);
 
-  setGap('3.1', gapRatio(ourAvg.aplus_presence, std.aplus_standard?.presence_rate || 0.8, true), [
+  setGap('3.1', gapRatio(ourAvg.aplus_presence, requireNumber(std.aplus_standard.presence_rate, 'aplus presence_rate'), true), [
     'A+ content absent on some SKUs'
   ]);
   setGap('3.2', gapRatio(ourAvg.aplus_image_count, std.aplus_standard?.median_modules), [
@@ -130,8 +131,8 @@ function computeInternalGaps({ ourMetrics, categoryStandard, visualStandard, our
   setGap('4.5', 0.6);
 
   setGap('5.1', 0.2);
-  setGap('6.1', gapRatio(ourAvg.rating, std.reviews_norm?.rating_band?.[1] || 4.2));
-  setGap('6.2', gapRatio(ourAvg.review_count, std.reviews_norm?.median_volume || 1000));
+  setGap('6.1', gapRatio(ourAvg.rating, requireNumber(std.reviews_norm.rating_band[1], 'reviews rating_band max')));
+  setGap('6.2', gapRatio(ourAvg.review_count, requireNumber(std.reviews_norm.median_volume, 'reviews median_volume')));
   setGap('6.3', 0.3);
   setGap('6.5', 0.2);
   setGap('6.6', 0.5);

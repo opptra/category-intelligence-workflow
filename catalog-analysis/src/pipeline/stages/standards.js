@@ -1,5 +1,22 @@
 const { withCache } = require('../../services/cache');
-const { aggregateNorms, median, collectTextCorpus } = require('./metrics');
+const { aggregateNorms, median } = require('./metrics');
+const {
+  formatLeaderTitles,
+  formatListingCopy,
+  compactJson
+} = require('../../utils/prompt-data');
+const { toolDefinition } = require('../../utils/schema-tools');
+
+const STANDARDS_LLM_TOOL = toolDefinition(
+  'standards-llm',
+  'Extract reusable catalog standards from Amazon category leader listings'
+);
+const {
+  requireValue,
+  requireNonEmptyString,
+  requireNonEmptyArray,
+  requireNumber
+} = require('../../utils/assert');
 
 function buildSpecUnion(competitors) {
   const keyStats = new Map();
@@ -40,6 +57,7 @@ function isCriticalSpecKey(key) {
 function detectFlagshipAttribute(specUnion) {
   const opacity = specUnion.find((s) => s.key === 'Opacity');
   if (opacity) {
+    requireNonEmptyArray(opacity.typical_values, 'flagship attribute Opacity typical_values');
     return {
       key: 'Opacity',
       tiers: [...new Set(opacity.typical_values)].slice(0, 6)
@@ -47,9 +65,11 @@ function detectFlagshipAttribute(specUnion) {
   }
 
   const top = specUnion.find((s) => s.fill_rate >= 0.7);
-  return top
-    ? { key: top.key, tiers: top.typical_values.slice(0, 6) }
-    : { key: null, tiers: [] };
+  if (!top) {
+    throw new Error('No flagship attribute found in spec union (expected Opacity or a field with fill_rate >= 0.7)');
+  }
+  requireNonEmptyArray(top.typical_values, `flagship attribute ${top.key} typical_values`);
+  return { key: top.key, tiers: top.typical_values.slice(0, 6) };
 }
 
 function buildDeterministicStandard(competitors, competitorMetrics) {
@@ -105,9 +125,9 @@ function buildDeterministicStandard(competitors, competitorMetrics) {
       rating_band: [norms.rating.min, norms.rating.max],
       median_volume: norms.review_count.median
     },
-    category_node: categoryNodes[0] || null,
-    bsr_top_rank: topBsr?.bsr_rank ?? null,
-    bsr_node: topBsr?.bsr_node ?? null,
+    category_node: requireNonEmptyString(categoryNodes[0], 'category_node'),
+    bsr_top_rank: requireNumber(topBsr?.bsr_rank, 'bsr_top_rank'),
+    bsr_node: requireNonEmptyString(topBsr?.bsr_node, 'bsr_node'),
     title_norms: {
       median_length: norms.title_length.median,
       min_length: norms.title_length.min,
@@ -121,14 +141,15 @@ function buildDeterministicStandard(competitors, competitorMetrics) {
 }
 
 async function buildLlmStandard({ llm, config, competitors, category }) {
-  const titles = competitors.map((p) => ({ asin: p.asin, title: p.title }));
-  const textSample = collectTextCorpus(competitors).slice(0, 12000);
+  const titles = formatLeaderTitles(competitors);
+  const listings = formatListingCopy(competitors);
 
   const cacheInput = {
     model: config.model,
     category,
-    titles,
-    textSampleLength: textSample.length
+    titleCount: titles.length,
+    promptFormat: 'compact-v1',
+    schema: 'v2.1-standards-tool'
   };
 
   return withCache({
@@ -136,32 +157,16 @@ async function buildLlmStandard({ llm, config, competitors, category }) {
     stage: 'standards-llm',
     input: cacheInput,
     refresh: config.refresh,
-    fn: async () => llm.completeJson({
+    fn: async () => llm.completeTool({
       system: 'You analyze Amazon category leader listings and extract reusable catalog standards.',
+      tool: STANDARDS_LLM_TOOL,
       user: `Category: ${category}
 
 Leader titles:
-${JSON.stringify(titles, null, 2)}
+${compactJson(titles)}
 
-Leader copy sample (titles, bullets, A+, specs):
-${textSample}
-
-Return JSON:
-{
-  "title": {
-    "template": "token order formula",
-    "required_tokens": ["list of token types every winning title should include"],
-    "mobile_first_75_chars": ["tokens that must appear in first 75 chars"]
-  },
-  "keyword_map": {
-    "head": [],
-    "long_tail": [],
-    "vernacular": [],
-    "occasion": []
-  },
-  "bullet_topics": ["recurring bullet topics across leaders"],
-  "bullet_framing_pattern": "benefit framing pattern leaders use"
-}`
+Leader listings (title, bullets, A+, catalog specs only):
+${compactJson(listings)}`
     })
   });
 }
@@ -170,16 +175,31 @@ async function buildCategoryStandard({ llm, config, competitors, competitorMetri
   const deterministic = buildDeterministicStandard(competitors, competitorMetrics);
   const llmPart = await buildLlmStandard({ llm, config, competitors, category });
 
+  requireValue(llmPart.title, 'standards LLM response title');
+  requireNonEmptyString(llmPart.title.template, 'standards LLM response title.template');
+  requireNonEmptyArray(llmPart.title.required_tokens, 'standards LLM response title.required_tokens');
+  requireNonEmptyArray(llmPart.title.mobile_first_75_chars, 'standards LLM response title.mobile_first_75_chars');
+
+  requireValue(llmPart.keyword_map, 'standards LLM response keyword_map');
+  requireNonEmptyArray(llmPart.keyword_map.head, 'standards LLM response keyword_map.head');
+  requireNonEmptyArray(llmPart.keyword_map.long_tail, 'standards LLM response keyword_map.long_tail');
+  requireNonEmptyArray(llmPart.keyword_map.vernacular, 'standards LLM response keyword_map.vernacular');
+  requireNonEmptyArray(llmPart.keyword_map.occasion, 'standards LLM response keyword_map.occasion');
+
+  requireNonEmptyArray(llmPart.bullet_topics, 'standards LLM response bullet_topics');
+  requireNonEmptyString(llmPart.bullet_framing_pattern, 'standards LLM response bullet_framing_pattern');
+
   return {
     title: {
-      template: llmPart.title?.template || 'Brand + Key Attribute + Product Type + Size + Pack + Benefits + Room + Dimensions + Color',
-      required_tokens: llmPart.title?.required_tokens || [],
-      median_length: deterministic.title_norms.median_length,
-      mobile_first_75_chars: llmPart.title?.mobile_first_75_chars || []
+      template: llmPart.title.template,
+      required_tokens: llmPart.title.required_tokens,
+      median_length: requireNumber(deterministic.title_norms.median_length, 'title median length'),
+      mobile_first_75_chars: llmPart.title.mobile_first_75_chars
     },
-    keyword_map: llmPart.keyword_map || { head: [], long_tail: [], vernacular: [], occasion: [] },
-    bullet_topics: llmPart.bullet_topics || [],
-    bullet_framing_pattern: llmPart.bullet_framing_pattern || 'CAPITALIZED HOOK: spec → benefit → who it helps',
+    keyword_map: llmPart.keyword_map,
+    bullet_topics: llmPart.bullet_topics,
+    bullet_framing_pattern: llmPart.bullet_framing_pattern,
+    bullet_norms: deterministic.bullet_norms,
     spec_union: deterministic.spec_union,
     flagship_attribute: deterministic.flagship_attribute,
     price_band: deterministic.price_band,
@@ -187,7 +207,8 @@ async function buildCategoryStandard({ llm, config, competitors, competitorMetri
     aplus_standard: deterministic.aplus_standard,
     reviews_norm: deterministic.reviews_norm,
     category_node: deterministic.category_node,
-    bsr_top_rank: deterministic.bsr_top_rank
+    bsr_top_rank: deterministic.bsr_top_rank,
+    bsr_node: deterministic.bsr_node
   };
 }
 

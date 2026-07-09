@@ -1,5 +1,9 @@
 const fs = require('fs');
 const {
+  requireNonEmptyString,
+  requireNonEmptyArray
+} = require('../../utils/assert');
+const {
   parsePriceText,
   parseRatingText,
   parseReviewCount,
@@ -68,10 +72,14 @@ function loadDatasets(config) {
   const competitors = competitorRaw.products.map((p) => normalizeProduct(p, { isOurs: false }));
   const ours = oursRaw.products.map((p) => normalizeProduct(p, { isOurs: true }));
 
-  const category = oursRaw.category
-    || competitorRaw.products[0]?.category
-    || 'Unknown Category';
-  const domain = oursRaw.domain || competitorRaw.domain || 'www.amazon.in';
+  requireNonEmptyArray(competitors, 'competitor products');
+  requireNonEmptyArray(ours, 'our products');
+
+  const category = oursRaw.category || competitorRaw.products[0]?.category;
+  requireNonEmptyString(category, 'category');
+
+  const domain = oursRaw.domain || competitorRaw.domain;
+  requireNonEmptyString(domain, 'domain');
 
   return {
     meta: {

@@ -1,14 +1,30 @@
 const { withCache } = require('../../services/cache');
 const { sampleReviewsForMining } = require('./metrics');
+const { requireNonEmptyArray } = require('../../utils/assert');
+const { groupReviewsByRating, compactJson } = require('../../utils/prompt-data');
+const { toolDefinition } = require('../../utils/schema-tools');
 
-function formatReviewsForPrompt(reviews) {
-  return reviews.map((r) => ({
-    rating: r.rating,
-    title: r.title,
-    text: (r.review_text || '').slice(0, 400),
-    verified: r.verified,
-    has_video: r.has_video
-  }));
+const VOICE_OF_CUSTOMER_TOOL = toolDefinition(
+  'voice-of-customer-mine',
+  'Mine Amazon product reviews into structured voice-of-customer signals'
+);
+
+function validateMinedSignals(signals) {
+  requireNonEmptyArray(signals, 'voice-of-customer signals');
+  for (const signal of signals) {
+    if (!signal.phrase || !signal.sentiment || !signal.relevance || !signal.mention_count) {
+      throw new Error('Each voice signal must have phrase, sentiment, relevance, and mention_count');
+    }
+    if (!['praise', 'complaint', 'objection', 'neutral'].includes(signal.sentiment)) {
+      throw new Error(`Invalid voice signal sentiment: ${signal.sentiment}`);
+    }
+    if (!['high', 'medium', 'low'].includes(signal.relevance)) {
+      throw new Error(`Invalid voice signal relevance: ${signal.relevance}`);
+    }
+    if (!Number.isFinite(signal.mention_count) || signal.mention_count < 1) {
+      throw new Error('voice signal mention_count must be >= 1');
+    }
+  }
 }
 
 async function mineVoiceOfCustomer({ llm, config, allProducts, category }) {
@@ -19,15 +35,17 @@ async function mineVoiceOfCustomer({ llm, config, allProducts, category }) {
     }
   }
 
-  const sampled = sampleReviewsForMining(
-    allReviews.map((r) => ({ ...r, asin: 'category' })),
-    config
-  );
+  const sampled = sampleReviewsForMining(allReviews, config);
+  requireNonEmptyArray(sampled, 'sampled reviews for voice-of-customer mining');
+
+  const reviewsByRating = groupReviewsByRating(sampled);
 
   const cacheInput = {
     model: config.model,
     category,
-    reviewCount: sampled.length
+    reviewCount: sampled.length,
+    promptFormat: 'by-rating-v1',
+    schema: 'v2.1-voc-tool'
   };
 
   return withCache({
@@ -36,33 +54,26 @@ async function mineVoiceOfCustomer({ llm, config, allProducts, category }) {
     input: cacheInput,
     refresh: config.refresh,
     fn: async () => {
-      const result = await llm.completeJson({
+      const result = await llm.completeTool({
         system: 'You mine Amazon product reviews into category-wide voice-of-customer insights for catalog building.',
+        tool: VOICE_OF_CUSTOMER_TOOL,
         user: `Category: ${category}
 
-Sampled reviews (${sampled.length}):
-${JSON.stringify(formatReviewsForPrompt(sampled), null, 2)}
-
-Return JSON:
-{
-  "praise": [{ "theme": "", "frequency": 0, "phrases": [], "weight": 9 }],
-  "complaints": [{ "theme": "", "frequency": 0, "severity": "low|medium|high", "weight": 9 }],
-  "objections": [{ "question": "", "resolve_with": "" }],
-  "phrase_bank": []
-}
+Sampled reviews by rating (${sampled.length} total):
+${compactJson(reviewsByRating)}
 
 Rules:
-- frequency is approximate count from the sample
-- phrases are short customer-validated phrases suitable for copy
-- objections are pre-purchase questions buyers raise
-- do not include ASINs or review IDs in output`
+- signals: short buyer phrases with sentiment (praise, complaint, objection, neutral), relevance (high, medium, low), and approximate mention_count from the sample
+- include complaints and objections, not only praise
+- themes (optional): group recurring themes into praise, complaints, objections arrays
+- do not include reviewer names, ASINs, or review IDs in output`
       });
 
+      validateMinedSignals(result.signals);
+
       return {
-        praise: result.praise || [],
-        complaints: result.complaints || [],
-        objections: result.objections || [],
-        phrase_bank: result.phrase_bank || []
+        signals: result.signals,
+        themes: result.themes || { praise: [], complaints: [], objections: [] }
       };
     }
   });

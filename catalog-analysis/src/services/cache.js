@@ -22,8 +22,8 @@ function readCache(cacheDir, stage, key) {
   }
   try {
     return JSON.parse(fs.readFileSync(file, 'utf-8'));
-  } catch {
-    return null;
+  } catch (err) {
+    throw new Error(`Corrupt cache file ${file}: ${err.message}`);
   }
 }
 

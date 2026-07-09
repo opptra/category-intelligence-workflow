@@ -1,0 +1,3 @@
+# Secrets — never include in AI context
+.env
+**/.env

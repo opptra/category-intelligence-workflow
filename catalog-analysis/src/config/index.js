@@ -7,8 +7,7 @@ function parseArgs(argv) {
     competitors: null,
     ours: null,
     output: null,
-    refresh: false,
-    skipVision: false
+    refresh: false
   };
 
   for (let i = 2; i < argv.length; i++) {
@@ -23,8 +22,6 @@ function parseArgs(argv) {
       args.output = path.resolve(argv[++i]);
     } else if (arg === '--refresh') {
       args.refresh = true;
-    } else if (arg === '--skip-vision') {
-      args.skipVision = true;
     }
   }
 
@@ -51,8 +48,13 @@ function loadConfig(argv = process.argv) {
     reviewSamplePerStar: 30,
     maxNegativeReviews: 80,
     maxPositiveReviews: 40,
-    montageCellSize: 400,
-    montageMaxCells: 16
+    // Product gallery: square grid, aspect ratio preserved via fit:inside
+    montageCellSize: 512,
+    montageMaxCells: 12,
+    // A+ content: landscape strips stacked vertically, aspect ratio preserved
+    aplusCellMaxWidth: 800,
+    aplusCellMaxHeight: 360,
+    aplusMaxCells: 10
   };
 }
 
