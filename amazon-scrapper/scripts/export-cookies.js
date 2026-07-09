@@ -1,14 +1,12 @@
 /**
  * One-time helper: opens Amazon in a browser so you can log in,
  * then saves session cookies to amazon_cookies.json for the scraper.
- *
- * Usage: node export-cookies.js [www.amazon.in]
  */
 
 const puppeteer = require('puppeteer');
 const fs = require('fs');
-const path = require('path');
 const readline = require('readline');
+const { cookiesPath } = require('../src/lib/paths');
 
 async function waitForEnter(prompt) {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -17,7 +15,7 @@ async function waitForEnter(prompt) {
 
 async function main() {
   const domain = process.argv[2] || 'www.amazon.in';
-  const outputFile = path.join(__dirname, 'amazon_cookies.json');
+  const outputFile = cookiesPath();
   const cookieDomain = domain.replace('www.', '');
 
   console.log(`Opening https://${domain}`);

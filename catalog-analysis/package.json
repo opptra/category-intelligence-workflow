@@ -1,0 +1,13 @@
+{
+  "name": "catalog-analysis",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Marketplace-agnostic catalog analysis pipeline (reads scraped product JSON, emits category playbook)",
+  "scripts": {
+    "analyze": "node src/cli.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "sharp": "^0.33.5"
+  }
+}

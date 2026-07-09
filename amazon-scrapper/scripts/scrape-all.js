@@ -1,23 +1,20 @@
 /**
  * Full pipeline: best sellers → product details → reviews
- *
- * Usage:
- *   node scrape-all.js
- *   npm run scrape
- *   node scrape-all.js --limit 10 --reviews-per-star 50
  */
 
 const fs = require('fs');
 const path = require('path');
-const { BestSellersScraper } = require('./scrapers/best-sellers');
-const { resolveCookiesPath } = require('./lib/resolve-cookies');
-const { scrapeProductDetailsAndReviews, printSummary } = require('./lib/scrape-pipeline');
+const { BestSellersScraper } = require('../src/scrapers/best-sellers');
+const { resolveCookiesPath } = require('../src/lib/resolve-cookies');
+const { scrapeProductDetailsAndReviews, printSummary } = require('../src/lib/scrape-pipeline');
+const { outputPath, FILE_NAMES, DEFAULT_CATEGORY_SLUG } = require('../src/lib/paths');
 
 function parseArgs(argv) {
+  const slug = DEFAULT_CATEGORY_SLUG;
   const options = {
     limit: 10,
-    bestSellersOutput: path.join(__dirname, 'output', 'curtains-drapes-best-sellers.json'),
-    output: path.join(__dirname, 'output', 'curtains-drapes-product-details.json'),
+    bestSellersOutput: outputPath(FILE_NAMES.bestSellers(slug)),
+    output: outputPath(FILE_NAMES.productDetails(slug)),
     cookiesPath: resolveCookiesPath(),
     headless: 'new',
     reviewsPerStar: 50,

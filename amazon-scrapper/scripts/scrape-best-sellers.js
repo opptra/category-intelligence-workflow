@@ -1,20 +1,17 @@
 /**
  * Scrape top best-selling Curtains & Drapes from Amazon India.
- *
- * Usage:
- *   node scrape-best-sellers.js
- *   node scrape-best-sellers.js --limit 10 --output output/best-sellers.json
  */
 
 const fs = require('fs');
 const path = require('path');
-const { BestSellersScraper } = require('./scrapers/best-sellers');
-const { resolveCookiesPath } = require('./lib/resolve-cookies');
+const { BestSellersScraper } = require('../src/scrapers/best-sellers');
+const { resolveCookiesPath } = require('../src/lib/resolve-cookies');
+const { outputPath, FILE_NAMES, DEFAULT_CATEGORY_SLUG } = require('../src/lib/paths');
 
 function parseArgs(argv) {
   const options = {
     limit: 10,
-    output: path.join(__dirname, 'output', 'curtains-drapes-best-sellers.json'),
+    output: outputPath(FILE_NAMES.bestSellers(DEFAULT_CATEGORY_SLUG)),
     cookiesPath: resolveCookiesPath(),
     headless: 'new'
   };

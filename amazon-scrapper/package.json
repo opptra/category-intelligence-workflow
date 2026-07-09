@@ -4,12 +4,12 @@
   "private": true,
   "description": "Amazon India scrapers (best sellers, product data)",
   "scripts": {
-    "scrape": "node scrape-all.js",
-    "scrape:ours": "node scrape-our-products.js",
-    "scrape:best-sellers": "node scrape-best-sellers.js",
-    "scrape:product-details": "node scrape-product-details.js",
-    "scrape:reviews": "node scrape-product-details.js --reviews-only",
-    "export-cookies": "node export-cookies.js"
+    "scrape": "node scripts/scrape-all.js",
+    "scrape:ours": "node scripts/scrape-our-products.js",
+    "scrape:best-sellers": "node scripts/scrape-best-sellers.js",
+    "scrape:product-details": "node scripts/scrape-product-details.js",
+    "scrape:reviews": "node scripts/scrape-product-details.js --reviews-only",
+    "export-cookies": "node scripts/export-cookies.js"
   },
   "dependencies": {
     "puppeteer": "^25.3.0"

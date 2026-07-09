@@ -1,26 +1,20 @@
 /**
- * Scrape full product details (title, description, gallery images, A+ images, reviews)
- * for items from a best-sellers JSON file.
- *
- * Usage:
- *   node scrape-product-details.js
- *   node scrape-product-details.js --input output/curtains-drapes-best-sellers.json
- *   node scrape-product-details.js --limit 3 --reviews-per-star 50 --headed
- *   node scrape-product-details.js --no-reviews
+ * Scrape full product details for items from a best-sellers JSON file.
  */
 
 const fs = require('fs');
 const path = require('path');
-const { ProductDetailsScraper } = require('./scrapers/product-details');
-const { BrowserSession } = require('./lib/browser-session');
-const { ReviewsScraper } = require('./scrapers/reviews');
-
-const { resolveCookiesPath } = require('./lib/resolve-cookies');
+const { ProductDetailsScraper } = require('../src/scrapers/product-details');
+const { BrowserSession } = require('../src/lib/browser-session');
+const { ReviewsScraper } = require('../src/scrapers/reviews');
+const { resolveCookiesPath } = require('../src/lib/resolve-cookies');
+const { outputPath, FILE_NAMES, DEFAULT_CATEGORY_SLUG } = require('../src/lib/paths');
 
 function parseArgs(argv) {
+  const slug = DEFAULT_CATEGORY_SLUG;
   const options = {
-    input: path.join(__dirname, 'output', 'curtains-drapes-best-sellers.json'),
-    output: path.join(__dirname, 'output', 'curtains-drapes-product-details.json'),
+    input: outputPath(FILE_NAMES.bestSellers(slug)),
+    output: outputPath(FILE_NAMES.productDetails(slug)),
     cookiesPath: resolveCookiesPath(),
     limit: null,
     headless: 'new',

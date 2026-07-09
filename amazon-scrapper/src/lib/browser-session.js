@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { cookiesPath } = require('./paths');
 const puppeteer = require('puppeteer');
 const { PAGE_TIMEOUT_MS, PROTOCOL_TIMEOUT_MS } = require('./constants');
 
@@ -9,7 +10,7 @@ const DEFAULT_USER_AGENT =
 class BrowserSession {
   constructor(options = {}) {
     this.browser = null;
-    this.cookiesPath = options.cookiesPath || path.join(__dirname, '..', 'amazon_cookies.json');
+    this.cookiesPath = options.cookiesPath || cookiesPath();
     this.delayMs = options.delayMs || 1500;
     this.headless = options.headless ?? 'new';
   }

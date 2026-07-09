@@ -1,24 +1,19 @@
 /**
  * Scrape your own products (from a URL list) with the same output as best sellers.
- *
- * Usage:
- *   npm run scrape:ours
- *   node scrape-our-products.js
- *   node scrape-our-products.js --input our-products.json
- *   node scrape-our-products.js --url "https://www.amazon.in/dp/B0..." --url "https://..."
  */
 
 const fs = require('fs');
 const path = require('path');
-const { resolveCookiesPath } = require('./lib/resolve-cookies');
-const { loadProductsFromFile, buildProductListPayload } = require('./lib/product-input');
-const { scrapeProductDetailsAndReviews, printSummary } = require('./lib/scrape-pipeline');
+const { resolveCookiesPath } = require('../src/lib/resolve-cookies');
+const { loadProductsFromFile, buildProductListPayload } = require('../src/lib/product-input');
+const { scrapeProductDetailsAndReviews, printSummary } = require('../src/lib/scrape-pipeline');
+const { outputPath, configPath, FILE_NAMES } = require('../src/lib/paths');
 
 function parseArgs(argv) {
   const options = {
-    input: path.join(__dirname, 'our-products.json'),
-    listOutput: path.join(__dirname, 'output', 'our-products-list.json'),
-    output: path.join(__dirname, 'output', 'our-products-product-details.json'),
+    input: configPath(FILE_NAMES.OUR_PRODUCTS_INPUT),
+    listOutput: outputPath(FILE_NAMES.OUR_PRODUCTS_LIST),
+    output: outputPath(FILE_NAMES.OUR_PRODUCTS_DETAILS),
     cookiesPath: resolveCookiesPath(),
     headless: 'new',
     reviewsPerStar: 50,
@@ -53,7 +48,7 @@ function parseArgs(argv) {
 
 function loadProductItems(options) {
   if (options.urls.length > 0) {
-    const { urlsToItems, DEFAULT_CATEGORY } = require('./lib/product-input');
+    const { urlsToItems, DEFAULT_CATEGORY } = require('../src/lib/product-input');
     const items = urlsToItems(options.urls, DEFAULT_CATEGORY);
     return {
       category: DEFAULT_CATEGORY,
@@ -78,7 +73,7 @@ async function main() {
 
   if (loaded.items.length === 0) {
     throw new Error(
-      'No valid product URLs found. Add links to our-products.json or pass --url flags.'
+      'No valid product URLs found. Add links to config/our-products.json or pass --url flags.'
     );
   }
 
