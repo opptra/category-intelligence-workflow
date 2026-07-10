@@ -1,4 +1,3 @@
-const { withCache } = require('../../services/cache');
 const { REQUIRED_TOPIC_NAMES } = require('../../domain/report-schema');
 const { requireNonEmptyString, requireNonEmptyArray, requireValue } = require('../../utils/assert');
 const { toolDefinition } = require('../../utils/schema-tools');
@@ -65,16 +64,10 @@ function validateVoiceSignals(signals) {
 }
 
 async function synthesizeCore({ llm, config, category, research }) {
-  return withCache({
-    cacheDir: config.cacheDir,
-    stage: 'synthesize-report-core-v2',
-    input: { model: config.model, category, schema: 'v2.1-core-tool', promptFormat: 'compact-v1' },
-    refresh: config.refresh,
-    fn: async () => {
-      const result = await llm.completeTool({
-        system: 'You synthesize Amazon category research into a concise intelligence report.',
-        tool: SYNTHESIZE_CORE_TOOL,
-        user: `Category: ${category}
+  const result = await llm.completeTool({
+    system: 'You synthesize Amazon category research into a concise intelligence report.',
+    tool: SYNTHESIZE_CORE_TOOL,
+    user: `Category: ${category}
 
 Research:
 ${compactJson(research)}
@@ -85,36 +78,28 @@ Rules:
 - category_lexicon.terms: seller/search terms from competitor listings only; classify each as high, medium, or low relevance; include low-relevance terms for completeness — they will be filtered later
 - voice_of_customer.signals: buyer phrases from reviews with sentiment (praise, complaint, objection, neutral), relevance, and approximate mention_count from the sample; include complaints and objections, not only praise
 - No ASINs, no framework IDs, no per-seller gap callouts`,
-        maxTokens: 4096
-      });
-
-      requireNonEmptyString(result.summary, 'synthesized summary');
-      requireValue(result.category_lexicon, 'category_lexicon');
-      requireNonEmptyString(result.category_lexicon.observations, 'category_lexicon.observations');
-      validateLexiconTerms(result.category_lexicon.terms);
-      requireValue(result.voice_of_customer, 'voice_of_customer');
-      requireNonEmptyString(result.voice_of_customer.observations, 'voice_of_customer.observations');
-      validateVoiceSignals(result.voice_of_customer.signals);
-
-      return result;
-    }
+    maxTokens: 4096
   });
+
+  requireNonEmptyString(result.summary, 'synthesized summary');
+  requireValue(result.category_lexicon, 'category_lexicon');
+  requireNonEmptyString(result.category_lexicon.observations, 'category_lexicon.observations');
+  validateLexiconTerms(result.category_lexicon.terms);
+  requireValue(result.voice_of_customer, 'voice_of_customer');
+  requireNonEmptyString(result.voice_of_customer.observations, 'voice_of_customer.observations');
+  validateVoiceSignals(result.voice_of_customer.signals);
+
+  return result;
 }
 
 async function synthesizeTopics({ llm, config, category, research, core }) {
   const topicList = REQUIRED_TOPIC_NAMES.join(', ');
   const topicsResearch = buildSynthesisTopicsResearch(research);
 
-  return withCache({
-    cacheDir: config.cacheDir,
-    stage: 'synthesize-report-topics-v2',
-    input: { model: config.model, category, schema: 'v2.1-topics-tool', topicNames: REQUIRED_TOPIC_NAMES, promptFormat: 'compact-v1' },
-    refresh: config.refresh,
-    fn: async () => {
-      const result = await llm.completeTool({
-        system: 'You write category research topic observations for Amazon catalog intelligence.',
-        tool: SYNTHESIZE_TOPICS_TOOL,
-        user: `Category: ${category}
+  const result = await llm.completeTool({
+    system: 'You write category research topic observations for Amazon catalog intelligence.',
+    tool: SYNTHESIZE_TOPICS_TOOL,
+    user: `Category: ${category}
 
 Research:
 ${compactJson(topicsResearch)}
@@ -129,28 +114,26 @@ Rules:
 - actions are category-wide, not our-SKU specific
 - topics.keywords should reference category_lexicon for vocabulary, not duplicate the full term list
 - No framework IDs or ASINs`,
-        maxTokens: 6144
-      });
-
-      requireNonEmptyArray(result.topics, 'synthesized topics');
-
-      const names = new Set();
-      for (const topic of result.topics) {
-        requireNonEmptyString(topic.name, 'topic.name');
-        requireNonEmptyString(topic.observations, `topic ${topic.name} observations`);
-        requireNonEmptyArray(topic.actions, `topic ${topic.name} actions`);
-        names.add(topic.name);
-      }
-
-      for (const required of REQUIRED_TOPIC_NAMES) {
-        if (!names.has(required)) {
-          throw new Error(`Synthesized topics missing required topic: ${required}`);
-        }
-      }
-
-      return result.topics;
-    }
+    maxTokens: 6144
   });
+
+  requireNonEmptyArray(result.topics, 'synthesized topics');
+
+  const names = new Set();
+  for (const topic of result.topics) {
+    requireNonEmptyString(topic.name, 'topic.name');
+    requireNonEmptyString(topic.observations, `topic ${topic.name} observations`);
+    requireNonEmptyArray(topic.actions, `topic ${topic.name} actions`);
+    names.add(topic.name);
+  }
+
+  for (const required of REQUIRED_TOPIC_NAMES) {
+    if (!names.has(required)) {
+      throw new Error(`Synthesized topics missing required topic: ${required}`);
+    }
+  }
+
+  return result.topics;
 }
 
 async function synthesizeReport({

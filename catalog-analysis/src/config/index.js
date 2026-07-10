@@ -54,7 +54,11 @@ function loadConfig(argv = process.argv) {
     // A+ content: landscape strips stacked vertically, aspect ratio preserved
     aplusCellMaxWidth: 800,
     aplusCellMaxHeight: 360,
-    aplusMaxCells: 10
+    aplusMaxCells: 10,
+    // Max vision calls to run in parallel within a gallery pass (caps API concurrency)
+    visionConcurrency: 6,
+    // Output token budget for vision montage classification calls
+    visionMaxTokens: 20000
   };
 }
 

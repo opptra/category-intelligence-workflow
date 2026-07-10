@@ -1,10 +1,9 @@
 const fs = require('fs');
 const path = require('path');
 const sharp = require('sharp');
-const { withCache, cachePath, hashInput } = require('../../services/cache');
+const { cachePath, hashInput } = require('../../services/cache');
 const { requireNonEmptyArray, requireNonEmptyString } = require('../../utils/assert');
 const { toolDefinition } = require('../../utils/schema-tools');
-
 const VISION_GALLERY_TOOL = toolDefinition(
   'vision-gallery',
   'Classify numbered Amazon listing image montage cells and summarize visual standards'
@@ -150,6 +149,26 @@ function maxCellsForType(config, galleryType) {
   return galleryType === 'aplus' ? config.aplusMaxCells : config.montageMaxCells;
 }
 
+/**
+ * Runs `worker` over `items` with at most `limit` promises in flight at once.
+ * Results preserve input order; workers start in order but resolve as they finish.
+ */
+async function mapWithConcurrency(items, limit, worker) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  async function runner() {
+    while (nextIndex < items.length) {
+      const current = nextIndex++;
+      results[current] = await worker(items[current], current);
+    }
+  }
+
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+  await Promise.all(Array.from({ length: workerCount }, runner));
+  return results;
+}
+
 function validateVisionAnalysis(analysis, { asin, galleryType }) {
   requireNonEmptyArray(analysis.cells, `vision cells for ${asin} (${galleryType})`);
   requireNonEmptyArray(analysis.present_roles, `vision present_roles for ${asin} (${galleryType})`);
@@ -180,66 +199,68 @@ ${layoutHint}
 Classify each numbered item and summarize category visual standards.
 hero_conventions applies to product galleries only.`,
     imageBase64: base64,
-    mediaType: 'image/jpeg'
+    mediaType: 'image/jpeg',
+    maxTokens: config.visionMaxTokens
   });
 
   return validateVisionAnalysis(analysis, { asin, galleryType });
 }
 
-async function analyzeProductGalleries({ llm, config, products, galleryType = 'product' }) {
-  const results = [];
+async function analyzeProductGalleries({
+  llm,
+  config,
+  products,
+  galleryType = 'product',
+  label = `${galleryType} gallery`,
+  log
+}) {
   const maxCells = maxCellsForType(config, galleryType);
 
+  const tasks = [];
   for (const product of products) {
     const urls = galleryType === 'aplus'
       ? (product.aplus_images || [])
       : (product.product_images || []);
-
-    if (!urls.length) {
-      continue;
+    if (urls.length) {
+      tasks.push({ product, urls });
     }
+  }
 
-    const cacheInput = {
-      model: config.model,
-      layout: galleryType === 'aplus' ? 'aplus-landscape-stack-v1' : 'product-square-grid-v1',
-      schema: 'v2.1-vision-tool',
-      asin: product.asin,
+  const total = tasks.length;
+  if (!total) {
+    return [];
+  }
+
+  let completed = 0;
+
+  return mapWithConcurrency(tasks, config.visionConcurrency, async ({ product, urls }) => {
+    const buffers = [];
+    for (const url of urls.slice(0, maxCells)) {
+      buffers.push(await downloadImage(url, config.cacheDir));
+    }
+    requireNonEmptyArray(buffers, `downloaded images for ${product.asin} (${galleryType})`);
+
+    const montage = await buildMontageForType(buffers, config, galleryType);
+    const analysis = await analyzeGalleryMontage({
+      llm,
+      config,
+      montageBuffer: montage,
+      imageCount: buffers.length,
       galleryType,
-      urls
-    };
-
-    const analysis = await withCache({
-      cacheDir: config.cacheDir,
-      stage: `vision-${galleryType}`,
-      input: cacheInput,
-      refresh: config.refresh,
-      fn: async () => {
-        const buffers = [];
-        for (const url of urls.slice(0, maxCells)) {
-          buffers.push(await downloadImage(url, config.cacheDir));
-        }
-        requireNonEmptyArray(buffers, `downloaded images for ${product.asin} (${galleryType})`);
-
-        const montage = await buildMontageForType(buffers, config, galleryType);
-        return analyzeGalleryMontage({
-          llm,
-          config,
-          montageBuffer: montage,
-          imageCount: buffers.length,
-          galleryType,
-          asin: product.asin
-        });
-      }
+      asin: product.asin
     });
 
-    results.push({
+    completed += 1;
+    if (log) {
+      log('S4', `${label} ${completed}/${total} done (asin=${product.asin})`);
+    }
+
+    return {
       asin: product.asin,
       image_count: urls.length,
       ...analysis
-    });
-  }
-
-  return results;
+    };
+  });
 }
 
 function aggregateVisualStandard(galleryResults, aplusResults) {
@@ -297,12 +318,14 @@ function aggregateVisualStandard(galleryResults, aplusResults) {
   };
 }
 
-async function buildVisualStandard({ llm, config, competitors, ours }) {
+async function buildVisualStandard({ llm, config, competitors, ours, log }) {
   const competitorGallery = await analyzeProductGalleries({
     llm,
     config,
     products: competitors,
-    galleryType: 'product'
+    galleryType: 'product',
+    label: 'competitor gallery',
+    log
   });
   const competitorsWithAplus = competitors.filter((p) => (p.aplus_images || []).length > 0);
   const competitorAplus = competitorsWithAplus.length
@@ -310,7 +333,9 @@ async function buildVisualStandard({ llm, config, competitors, ours }) {
       llm,
       config,
       products: competitorsWithAplus,
-      galleryType: 'aplus'
+      galleryType: 'aplus',
+      label: 'competitor A+',
+      log
     })
     : [];
 
@@ -318,7 +343,9 @@ async function buildVisualStandard({ llm, config, competitors, ours }) {
     llm,
     config,
     products: ours,
-    galleryType: 'product'
+    galleryType: 'product',
+    label: 'our gallery',
+    log
   });
 
   const aggregated = aggregateVisualStandard(competitorGallery, competitorAplus);

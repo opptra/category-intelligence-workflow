@@ -1,4 +1,3 @@
-const { withCache } = require('../../services/cache');
 const { aggregateNorms, median } = require('./metrics');
 const {
   formatLeaderTitles,
@@ -6,7 +5,6 @@ const {
   compactJson
 } = require('../../utils/prompt-data');
 const { toolDefinition } = require('../../utils/schema-tools');
-
 const STANDARDS_LLM_TOOL = toolDefinition(
   'standards-llm',
   'Extract reusable catalog standards from Amazon category leader listings'
@@ -144,30 +142,16 @@ async function buildLlmStandard({ llm, config, competitors, category }) {
   const titles = formatLeaderTitles(competitors);
   const listings = formatListingCopy(competitors);
 
-  const cacheInput = {
-    model: config.model,
-    category,
-    titleCount: titles.length,
-    promptFormat: 'compact-v1',
-    schema: 'v2.1-standards-tool'
-  };
-
-  return withCache({
-    cacheDir: config.cacheDir,
-    stage: 'standards-llm',
-    input: cacheInput,
-    refresh: config.refresh,
-    fn: async () => llm.completeTool({
-      system: 'You analyze Amazon category leader listings and extract reusable catalog standards.',
-      tool: STANDARDS_LLM_TOOL,
-      user: `Category: ${category}
+  return llm.completeTool({
+    system: 'You analyze Amazon category leader listings and extract reusable catalog standards.',
+    tool: STANDARDS_LLM_TOOL,
+    user: `Category: ${category}
 
 Leader titles:
 ${compactJson(titles)}
 
 Leader listings (title, bullets, A+, catalog specs only):
 ${compactJson(listings)}`
-    })
   });
 }
 

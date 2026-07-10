@@ -1,9 +1,7 @@
-const { withCache } = require('../../services/cache');
 const { sampleReviewsForMining } = require('./metrics');
 const { requireNonEmptyArray } = require('../../utils/assert');
 const { groupReviewsByRating, compactJson } = require('../../utils/prompt-data');
 const { toolDefinition } = require('../../utils/schema-tools');
-
 const VOICE_OF_CUSTOMER_TOOL = toolDefinition(
   'voice-of-customer-mine',
   'Mine Amazon product reviews into structured voice-of-customer signals'
@@ -40,24 +38,10 @@ async function mineVoiceOfCustomer({ llm, config, allProducts, category }) {
 
   const reviewsByRating = groupReviewsByRating(sampled);
 
-  const cacheInput = {
-    model: config.model,
-    category,
-    reviewCount: sampled.length,
-    promptFormat: 'by-rating-v1',
-    schema: 'v2.1-voc-tool'
-  };
-
-  return withCache({
-    cacheDir: config.cacheDir,
-    stage: 'voice-of-customer',
-    input: cacheInput,
-    refresh: config.refresh,
-    fn: async () => {
-      const result = await llm.completeTool({
-        system: 'You mine Amazon product reviews into category-wide voice-of-customer insights for catalog building.',
-        tool: VOICE_OF_CUSTOMER_TOOL,
-        user: `Category: ${category}
+  const result = await llm.completeTool({
+    system: 'You mine Amazon product reviews into category-wide voice-of-customer insights for catalog building.',
+    tool: VOICE_OF_CUSTOMER_TOOL,
+    user: `Category: ${category}
 
 Sampled reviews by rating (${sampled.length} total):
 ${compactJson(reviewsByRating)}
@@ -67,16 +51,14 @@ Rules:
 - include complaints and objections, not only praise
 - themes (optional): group recurring themes into praise, complaints, objections arrays
 - do not include reviewer names, ASINs, or review IDs in output`
-      });
-
-      validateMinedSignals(result.signals);
-
-      return {
-        signals: result.signals,
-        themes: result.themes || { praise: [], complaints: [], objections: [] }
-      };
-    }
   });
+
+  validateMinedSignals(result.signals);
+
+  return {
+    signals: result.signals,
+    themes: result.themes || { praise: [], complaints: [], objections: [] }
+  };
 }
 
 module.exports = { mineVoiceOfCustomer };

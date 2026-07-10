@@ -49,7 +49,8 @@ async function runAnalysis(config = loadConfig()) {
     llm,
     config,
     competitors,
-    ours: datasets.ours
+    ours: datasets.ours,
+    log
   });
 
   categoryStandard.gallery_standard = {

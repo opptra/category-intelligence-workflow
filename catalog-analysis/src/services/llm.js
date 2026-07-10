@@ -10,6 +10,13 @@ function extractJson(text) {
   }
 }
 
+// Marks the system prompt as a cache breakpoint. The request prefix is ordered
+// tools -> system -> messages, so caching here reuses the repeating tools + system
+// prefix across calls (the per-call image / user text stays uncached after it).
+function cachedSystem(system) {
+  return [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }];
+}
+
 function createLlmClient(config) {
   if (!config.apiKey) {
     throw new Error('ANTHROPIC_API_KEY is required. Set it in your environment.');
@@ -104,7 +111,7 @@ function createLlmClient(config) {
       const response = await client.messages.create({
         model: config.model,
         max_tokens: maxTokens,
-        system,
+        system: cachedSystem(system),
         tools: [tool],
         tool_choice: { type: 'tool', name: tool.name },
         messages: [{ role: 'user', content: user }]
@@ -125,7 +132,7 @@ function createLlmClient(config) {
       const response = await client.messages.create({
         model: config.model,
         max_tokens: maxTokens,
-        system,
+        system: cachedSystem(system),
         tools: [tool],
         tool_choice: { type: 'tool', name: tool.name },
         messages: [{
