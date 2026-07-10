@@ -1,7 +1,8 @@
 const {
   requireValue,
   requireNonEmptyString,
-  requireNonEmptyArray
+  requireNonEmptyArray,
+  requireFields
 } = require('../utils/assert');
 const { MAX_LEXICON_OUTPUT, MAX_SIGNALS_OUTPUT } = require('./report-normalize');
 
@@ -45,11 +46,14 @@ function validateVoiceSignal(signal, index) {
 }
 
 function validateReport(report) {
-  requireValue(report.meta, 'meta');
-  requireNonEmptyString(report.meta.schema_version, 'meta.schema_version');
-  requireNonEmptyString(report.meta.category, 'meta.category');
-  requireNonEmptyString(report.meta.marketplace, 'meta.marketplace');
-  requireNonEmptyString(report.meta.generated_at, 'meta.generated_at');
+  requireFields(report, {
+    values: ['meta', 'category_lexicon', 'voice_of_customer'],
+    strings: ['summary'],
+    arrays: ['topics']
+  });
+  requireFields(report.meta, {
+    strings: ['schema_version', 'category', 'marketplace', 'generated_at']
+  }, 'meta');
 
   if (report.meta.schema_version !== SCHEMA_VERSION) {
     throw new Error(`Unsupported schema_version: ${report.meta.schema_version}`);
@@ -59,11 +63,10 @@ function validateReport(report) {
     throw new Error('meta.competitor_count must be a positive number');
   }
 
-  requireNonEmptyString(report.summary, 'summary');
-
-  requireValue(report.category_lexicon, 'category_lexicon');
-  requireNonEmptyString(report.category_lexicon.observations, 'category_lexicon.observations');
-  requireNonEmptyArray(report.category_lexicon.terms, 'category_lexicon.terms');
+  requireFields(report.category_lexicon, {
+    strings: ['observations'],
+    arrays: ['terms']
+  }, 'category_lexicon');
 
   if (report.category_lexicon.terms.length > MAX_LEXICON_OUTPUT) {
     throw new Error(`category_lexicon.terms exceeds max of ${MAX_LEXICON_OUTPUT}`);
@@ -71,17 +74,16 @@ function validateReport(report) {
 
   report.category_lexicon.terms.forEach(validateLexiconTerm);
 
-  requireValue(report.voice_of_customer, 'voice_of_customer');
-  requireNonEmptyString(report.voice_of_customer.observations, 'voice_of_customer.observations');
-  requireNonEmptyArray(report.voice_of_customer.signals, 'voice_of_customer.signals');
+  requireFields(report.voice_of_customer, {
+    strings: ['observations'],
+    arrays: ['signals']
+  }, 'voice_of_customer');
 
   if (report.voice_of_customer.signals.length > MAX_SIGNALS_OUTPUT) {
     throw new Error(`voice_of_customer.signals exceeds max of ${MAX_SIGNALS_OUTPUT}`);
   }
 
   report.voice_of_customer.signals.forEach(validateVoiceSignal);
-
-  requireNonEmptyArray(report.topics, 'topics');
 
   const names = new Set();
   for (const topic of report.topics) {

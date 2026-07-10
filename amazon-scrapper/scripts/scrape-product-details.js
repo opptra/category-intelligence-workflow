@@ -8,13 +8,11 @@ const { ProductDetailsScraper } = require('../src/scrapers/product-details');
 const { BrowserSession } = require('../src/lib/browser-session');
 const { ReviewsScraper } = require('../src/scrapers/reviews');
 const { resolveCookiesPath } = require('../src/lib/resolve-cookies');
-const { outputPath, FILE_NAMES, DEFAULT_CATEGORY_SLUG } = require('../src/lib/paths');
 
 function parseArgs(argv) {
-  const slug = DEFAULT_CATEGORY_SLUG;
   const options = {
-    input: outputPath(FILE_NAMES.bestSellers(slug)),
-    output: outputPath(FILE_NAMES.productDetails(slug)),
+    input: null,
+    output: null,
     cookiesPath: resolveCookiesPath(),
     limit: null,
     headless: 'new',
@@ -96,6 +94,10 @@ async function enrichWithReviews(products, options) {
 async function main() {
   const options = parseArgs(process.argv);
 
+  if (!options.output) {
+    throw new Error('--output is required');
+  }
+
   if (options.reviewsOnly) {
     if (!fs.existsSync(options.output)) {
       throw new Error(`Product details file not found: ${options.output}`);
@@ -120,6 +122,10 @@ async function main() {
     fs.writeFileSync(options.output, JSON.stringify(existing, null, 2), 'utf-8');
     console.log(`\nUpdated ${options.output}`);
     return;
+  }
+
+  if (!options.input) {
+    throw new Error('--input is required (unless using --reviews-only)');
   }
 
   const items = loadInputItems(options.input);

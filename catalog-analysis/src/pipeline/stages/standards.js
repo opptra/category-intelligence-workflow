@@ -10,10 +10,10 @@ const STANDARDS_LLM_TOOL = toolDefinition(
   'Extract reusable catalog standards from Amazon category leader listings'
 );
 const {
-  requireValue,
   requireNonEmptyString,
   requireNonEmptyArray,
-  requireNumber
+  requireNumber,
+  requireFields
 } = require('../../utils/assert');
 
 function buildSpecUnion(competitors) {
@@ -159,19 +159,18 @@ async function buildCategoryStandard({ llm, config, competitors, competitorMetri
   const deterministic = buildDeterministicStandard(competitors, competitorMetrics);
   const llmPart = await buildLlmStandard({ llm, config, competitors, category });
 
-  requireValue(llmPart.title, 'standards LLM response title');
-  requireNonEmptyString(llmPart.title.template, 'standards LLM response title.template');
-  requireNonEmptyArray(llmPart.title.required_tokens, 'standards LLM response title.required_tokens');
-  requireNonEmptyArray(llmPart.title.mobile_first_75_chars, 'standards LLM response title.mobile_first_75_chars');
-
-  requireValue(llmPart.keyword_map, 'standards LLM response keyword_map');
-  requireNonEmptyArray(llmPart.keyword_map.head, 'standards LLM response keyword_map.head');
-  requireNonEmptyArray(llmPart.keyword_map.long_tail, 'standards LLM response keyword_map.long_tail');
-  requireNonEmptyArray(llmPart.keyword_map.vernacular, 'standards LLM response keyword_map.vernacular');
-  requireNonEmptyArray(llmPart.keyword_map.occasion, 'standards LLM response keyword_map.occasion');
-
-  requireNonEmptyArray(llmPart.bullet_topics, 'standards LLM response bullet_topics');
-  requireNonEmptyString(llmPart.bullet_framing_pattern, 'standards LLM response bullet_framing_pattern');
+  requireFields(llmPart, {
+    values: ['title', 'keyword_map'],
+    arrays: ['bullet_topics'],
+    strings: ['bullet_framing_pattern']
+  }, 'standards LLM response');
+  requireFields(llmPart.title, {
+    strings: ['template'],
+    arrays: ['required_tokens', 'mobile_first_75_chars']
+  }, 'standards LLM response title');
+  requireFields(llmPart.keyword_map, {
+    arrays: ['head', 'long_tail', 'vernacular', 'occasion']
+  }, 'standards LLM response keyword_map');
 
   return {
     title: {

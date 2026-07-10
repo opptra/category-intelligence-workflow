@@ -1,17 +1,19 @@
 /**
- * Scrape top best-selling Curtains & Drapes from Amazon India.
+ * Scrape top best-selling products for a category from Amazon.
  */
 
 const fs = require('fs');
 const path = require('path');
 const { BestSellersScraper } = require('../src/scrapers/best-sellers');
 const { resolveCookiesPath } = require('../src/lib/resolve-cookies');
-const { outputPath, FILE_NAMES, DEFAULT_CATEGORY_SLUG } = require('../src/lib/paths');
+const { outputPath, FILE_NAMES } = require('../src/lib/paths');
+const { slugify } = require('../src/lib/slugify');
 
 function parseArgs(argv) {
   const options = {
+    categoryUrl: null,
     limit: 10,
-    output: outputPath(FILE_NAMES.bestSellers(DEFAULT_CATEGORY_SLUG)),
+    output: null,
     cookiesPath: resolveCookiesPath(),
     headless: 'new'
   };
@@ -19,7 +21,9 @@ function parseArgs(argv) {
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
 
-    if (arg === '--limit' && argv[i + 1]) {
+    if (arg === '--category-url' && argv[i + 1]) {
+      options.categoryUrl = argv[++i];
+    } else if (arg === '--limit' && argv[i + 1]) {
       options.limit = parseInt(argv[++i], 10);
     } else if (arg === '--output' && argv[i + 1]) {
       options.output = path.resolve(argv[++i]);
@@ -35,23 +39,30 @@ function parseArgs(argv) {
 
 async function main() {
   const options = parseArgs(process.argv);
+  if (!options.categoryUrl) {
+    throw new Error('--category-url is required');
+  }
+
   const scraper = new BestSellersScraper({
+    categoryUrl: options.categoryUrl,
     cookiesPath: options.cookiesPath,
     limit: options.limit,
     headless: options.headless
   });
 
   try {
-    console.log(`Scraping top ${options.limit} best sellers for Curtains & Drapes...\n`);
+    console.log(`Scraping top ${options.limit} best sellers...\n`);
+    console.log(`Category URL: ${options.categoryUrl}\n`);
 
     const result = await scraper.scrape({ limit: options.limit });
 
-    fs.mkdirSync(path.dirname(options.output), { recursive: true });
-    fs.writeFileSync(options.output, JSON.stringify(result, null, 2), 'utf-8');
+    const output = options.output || outputPath(FILE_NAMES.bestSellers(slugify(result.category)));
+    fs.mkdirSync(path.dirname(output), { recursive: true });
+    fs.writeFileSync(output, JSON.stringify(result, null, 2), 'utf-8');
 
-    console.log(`\nSaved ${result.items.length} items to ${options.output}\n`);
+    console.log(`\nSaved ${result.items.length} items to ${output}\n`);
     console.log('='.repeat(60));
-    console.log('TOP BEST SELLERS');
+    console.log(`TOP BEST SELLERS — ${result.category}`);
     console.log('='.repeat(60));
 
     for (const item of result.items) {

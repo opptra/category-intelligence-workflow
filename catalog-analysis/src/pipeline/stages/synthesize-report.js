@@ -1,5 +1,9 @@
 const { REQUIRED_TOPIC_NAMES } = require('../../domain/report-schema');
-const { requireNonEmptyString, requireNonEmptyArray, requireValue } = require('../../utils/assert');
+const {
+  requireNonEmptyString,
+  requireNonEmptyArray,
+  requireFields
+} = require('../../utils/assert');
 const { toolDefinition } = require('../../utils/schema-tools');
 const {
   buildSynthesisResearch,
@@ -81,12 +85,19 @@ Rules:
     maxTokens: 4096
   });
 
-  requireNonEmptyString(result.summary, 'synthesized summary');
-  requireValue(result.category_lexicon, 'category_lexicon');
-  requireNonEmptyString(result.category_lexicon.observations, 'category_lexicon.observations');
+  requireFields(result, {
+    values: ['category_lexicon', 'voice_of_customer'],
+    strings: ['summary']
+  }, 'synthesized');
+  requireFields(result.category_lexicon, {
+    strings: ['observations'],
+    arrays: ['terms']
+  }, 'category_lexicon');
   validateLexiconTerms(result.category_lexicon.terms);
-  requireValue(result.voice_of_customer, 'voice_of_customer');
-  requireNonEmptyString(result.voice_of_customer.observations, 'voice_of_customer.observations');
+  requireFields(result.voice_of_customer, {
+    strings: ['observations'],
+    arrays: ['signals']
+  }, 'voice_of_customer');
   validateVoiceSignals(result.voice_of_customer.signals);
 
   return result;

@@ -1,4 +1,3 @@
-const { outputPath, FILE_NAMES } = require('../../config/paths');
 const { SCHEMA_VERSION, validateReport } = require('../../domain/report-schema');
 const { normalizeReportSections } = require('../../domain/report-normalize');
 
@@ -33,16 +32,7 @@ function assembleReport({ meta, config, synthesized }) {
   return validateReport(report);
 }
 
-function resolveOutputPath(config, category) {
-  if (config.output) {
-    return config.output;
-  }
-  const slug = slugifyCategory(category);
-  return outputPath(FILE_NAMES.analysis(slug));
-}
-
 module.exports = {
   assembleReport,
-  resolveOutputPath,
   slugifyCategory
 };

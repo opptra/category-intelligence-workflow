@@ -1,5 +1,3 @@
-const fs = require('fs');
-const path = require('path');
 const { ProductDetailsScraper } = require('../scrapers/product-details');
 
 async function scrapeProductDetailsAndReviews(items, options) {
@@ -41,10 +39,7 @@ async function scrapeProductDetailsAndReviews(items, options) {
       ...result
     };
 
-    fs.mkdirSync(path.dirname(options.output), { recursive: true });
-    fs.writeFileSync(options.output, JSON.stringify(output, null, 2), 'utf-8');
-
-    console.log(`\nSaved ${result.products.length} products to ${options.output}`);
+    console.log(`\nScraped ${result.products.length} products`);
 
     for (const product of result.products) {
       if (product.error) {
@@ -78,7 +73,9 @@ function printSummary({ title, listFile, outputFile, finalOutput, elapsed }) {
   if (listFile) {
     console.log(`Product list:  ${listFile}`);
   }
-  console.log(`Full output:   ${outputFile}`);
+  if (outputFile) {
+    console.log(`Full output:   ${outputFile}`);
+  }
   console.log(`Products:      ${finalOutput.products.length}`);
   console.log(`Total reviews: ${totalReviews}`);
   console.log(`Time:          ${elapsed}s`);

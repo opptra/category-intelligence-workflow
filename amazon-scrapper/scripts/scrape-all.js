@@ -1,5 +1,5 @@
 /**
- * Full pipeline: best sellers → product details → reviews
+ * Full pipeline: best sellers → product details → reviews (optional file output).
  */
 
 const fs = require('fs');
@@ -7,14 +7,15 @@ const path = require('path');
 const { BestSellersScraper } = require('../src/scrapers/best-sellers');
 const { resolveCookiesPath } = require('../src/lib/resolve-cookies');
 const { scrapeProductDetailsAndReviews, printSummary } = require('../src/lib/scrape-pipeline');
-const { outputPath, FILE_NAMES, DEFAULT_CATEGORY_SLUG } = require('../src/lib/paths');
+const { outputPath, FILE_NAMES } = require('../src/lib/paths');
+const { slugify } = require('../src/lib/slugify');
 
 function parseArgs(argv) {
-  const slug = DEFAULT_CATEGORY_SLUG;
   const options = {
+    categoryUrl: null,
     limit: 10,
-    bestSellersOutput: outputPath(FILE_NAMES.bestSellers(slug)),
-    output: outputPath(FILE_NAMES.productDetails(slug)),
+    bestSellersOutput: null,
+    output: null,
     cookiesPath: resolveCookiesPath(),
     headless: 'new',
     reviewsPerStar: 50,
@@ -24,7 +25,9 @@ function parseArgs(argv) {
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
 
-    if (arg === '--limit' && argv[i + 1]) {
+    if (arg === '--category-url' && argv[i + 1]) {
+      options.categoryUrl = argv[++i];
+    } else if (arg === '--limit' && argv[i + 1]) {
       options.limit = parseInt(argv[++i], 10);
     } else if (arg === '--best-sellers-output' && argv[i + 1]) {
       options.bestSellersOutput = path.resolve(argv[++i]);
@@ -46,6 +49,7 @@ function parseArgs(argv) {
 
 async function scrapeBestSellers(options) {
   const scraper = new BestSellersScraper({
+    categoryUrl: options.categoryUrl,
     cookiesPath: options.cookiesPath,
     limit: options.limit,
     headless: options.headless
@@ -59,10 +63,13 @@ async function scrapeBestSellers(options) {
 
     const result = await scraper.scrape({ limit: options.limit });
 
-    fs.mkdirSync(path.dirname(options.bestSellersOutput), { recursive: true });
-    fs.writeFileSync(options.bestSellersOutput, JSON.stringify(result, null, 2), 'utf-8');
-
-    console.log(`\nSaved ${result.items.length} items to ${options.bestSellersOutput}`);
+    if (options.bestSellersOutput) {
+      fs.mkdirSync(path.dirname(options.bestSellersOutput), { recursive: true });
+      fs.writeFileSync(options.bestSellersOutput, JSON.stringify(result, null, 2), 'utf-8');
+      console.log(`\nSaved ${result.items.length} items to ${options.bestSellersOutput}`);
+    } else {
+      console.log(`\nScraped ${result.items.length} best sellers (not written to disk)`);
+    }
 
     for (const item of result.items) {
       console.log(`  #${item.rank} ${item.asin} — ${item.title?.slice(0, 60)}...`);
@@ -76,13 +83,24 @@ async function scrapeBestSellers(options) {
 
 async function main() {
   const options = parseArgs(process.argv);
+  if (!options.categoryUrl) {
+    throw new Error('--category-url is required');
+  }
+
   const startedAt = Date.now();
 
-  console.log('Amazon Curtains & Drapes — Best Sellers Pipeline\n');
+  console.log('Amazon Best Sellers Pipeline\n');
+  console.log(`Category URL: ${options.categoryUrl}`);
   console.log(`Limit: ${options.limit} products`);
   console.log(`Cookies: ${options.cookiesPath}\n`);
 
   const bestSellers = await scrapeBestSellers(options);
+
+  if (!options.output) {
+    const slug = slugify(bestSellers.category);
+    options.output = outputPath(FILE_NAMES.productDetails(slug));
+  }
+
   const finalOutput = await scrapeProductDetailsAndReviews(bestSellers.items, {
     cookiesPath: options.cookiesPath,
     headless: options.headless,
@@ -91,9 +109,12 @@ async function main() {
     source: 'best-sellers',
     sourceFile: options.bestSellersOutput,
     category: bestSellers.category,
-    output: options.output,
     stepLabel: 'STEP 2/2: PRODUCT DETAILS + REVIEWS'
   });
+
+  fs.mkdirSync(path.dirname(options.output), { recursive: true });
+  fs.writeFileSync(options.output, JSON.stringify(finalOutput, null, 2), 'utf-8');
+  console.log(`\nSaved product details to ${options.output}`);
 
   printSummary({
     title: 'Best sellers pipeline complete',

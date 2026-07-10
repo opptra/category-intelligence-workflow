@@ -1,7 +1,8 @@
 const fs = require('fs');
 const {
   requireNonEmptyString,
-  requireNonEmptyArray
+  requireNonEmptyArray,
+  requireFields
 } = require('../../utils/assert');
 const {
   parsePriceText,
@@ -65,25 +66,41 @@ function normalizeProduct(product, { isOurs }) {
   };
 }
 
-function loadDatasets(config) {
-  const competitorRaw = readJson(config.competitors);
-  const oursRaw = readJson(config.ours);
+function parseDataset(raw, { isOurs, label }) {
+  if (!raw || typeof raw !== 'object') {
+    throw new Error(`Invalid ${label} dataset: expected an object`);
+  }
+  requireNonEmptyArray(raw.products, `${label} products`);
+  return raw.products.map((p) => normalizeProduct(p, { isOurs }));
+}
 
-  const competitors = competitorRaw.products.map((p) => normalizeProduct(p, { isOurs: false }));
-  const ours = oursRaw.products.map((p) => normalizeProduct(p, { isOurs: true }));
+function loadDatasetsFromInput(input) {
+  if (!input || typeof input !== 'object') {
+    throw new Error('Analysis input is required: { our_products, top_sellers }');
+  }
 
-  requireNonEmptyArray(competitors, 'competitor products');
-  requireNonEmptyArray(ours, 'our products');
+  requireFields(input, {
+    values: ['our_products', 'top_sellers']
+  }, 'analysis input');
 
-  const category = oursRaw.category || competitorRaw.products[0]?.category;
-  requireNonEmptyString(category, 'category');
+  const { our_products, top_sellers } = input;
+  requireNonEmptyString(top_sellers.category, 'top_sellers.category');
 
-  const domain = oursRaw.domain || competitorRaw.domain;
+  if (our_products.category && our_products.category !== top_sellers.category) {
+    throw new Error(
+      `Category mismatch: our_products.category (${our_products.category}) !== top_sellers.category (${top_sellers.category})`
+    );
+  }
+
+  const competitors = parseDataset(top_sellers, { isOurs: false, label: 'top_sellers' });
+  const ours = parseDataset(our_products, { isOurs: true, label: 'our_products' });
+
+  const domain = top_sellers.domain || our_products.domain;
   requireNonEmptyString(domain, 'domain');
 
   return {
     meta: {
-      category,
+      category: top_sellers.category,
       domain,
       competitor_count: competitors.length,
       our_count: ours.length
@@ -94,7 +111,23 @@ function loadDatasets(config) {
   };
 }
 
+function loadDatasets(config) {
+  if (!config.competitors || !config.ours) {
+    throw new Error('File-based load requires config.competitors and config.ours paths');
+  }
+
+  const competitorRaw = readJson(config.competitors);
+  const oursRaw = readJson(config.ours);
+
+  return loadDatasetsFromInput({
+    top_sellers: competitorRaw,
+    our_products: oursRaw
+  });
+}
+
 module.exports = {
   loadDatasets,
-  normalizeProduct
+  loadDatasetsFromInput,
+  normalizeProduct,
+  parseDataset
 };

@@ -2,7 +2,11 @@ const fs = require('fs');
 const path = require('path');
 const sharp = require('sharp');
 const { cachePath, hashInput } = require('../../services/cache');
-const { requireNonEmptyArray, requireNonEmptyString } = require('../../utils/assert');
+const {
+  requireNonEmptyArray,
+  requireNonEmptyString,
+  requireNonEmptyArrayKeys
+} = require('../../utils/assert');
 const { toolDefinition } = require('../../utils/schema-tools');
 const VISION_GALLERY_TOOL = toolDefinition(
   'vision-gallery',
@@ -170,12 +174,12 @@ async function mapWithConcurrency(items, limit, worker) {
 }
 
 function validateVisionAnalysis(analysis, { asin, galleryType }) {
-  requireNonEmptyArray(analysis.cells, `vision cells for ${asin} (${galleryType})`);
-  requireNonEmptyArray(analysis.present_roles, `vision present_roles for ${asin} (${galleryType})`);
+  const labelPrefix = `vision for ${asin} (${galleryType})`;
+  const keys = ['cells', 'present_roles', 'quality_notes'];
   if (galleryType === 'product') {
-    requireNonEmptyArray(analysis.hero_conventions, `vision hero_conventions for ${asin} (${galleryType})`);
+    keys.splice(2, 0, 'hero_conventions');
   }
-  requireNonEmptyArray(analysis.quality_notes, `vision quality_notes for ${asin} (${galleryType})`);
+  requireNonEmptyArrayKeys(analysis, keys, labelPrefix);
 
   for (const cell of analysis.cells) {
     requireNonEmptyString(cell.role, `vision cell role for ${asin} (${galleryType}) cell ${cell.cell}`);

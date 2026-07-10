@@ -1,0 +1,16 @@
+{
+  "name": "orchestrator",
+  "version": "1.0.0",
+  "private": true,
+  "description": "End-to-end catalog pipeline: scrape then analyze via direct function calls",
+  "main": "src/run.js",
+  "scripts": {
+    "start": "node src/cli.js",
+    "pipeline": "node src/cli.js"
+  },
+  "dependencies": {
+    "amazon-scrapper": "file:../amazon-scrapper",
+    "catalog-analysis": "file:../catalog-analysis",
+    "dotenv": "^16.4.7"
+  }
+}

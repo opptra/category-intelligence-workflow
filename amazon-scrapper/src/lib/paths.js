@@ -13,8 +13,6 @@ const FILE_NAMES = {
   productDetails: (slug) => `${slug}-product-details.json`
 };
 
-const DEFAULT_CATEGORY_SLUG = 'curtains-drapes';
-
 function outputPath(filename) {
   return path.join(OUTPUT_DIR, filename);
 }
@@ -33,7 +31,6 @@ module.exports = {
   OUTPUT_DIR,
   CONFIG_DIR,
   FILE_NAMES,
-  DEFAULT_CATEGORY_SLUG,
   outputPath,
   configPath,
   cookiesPath

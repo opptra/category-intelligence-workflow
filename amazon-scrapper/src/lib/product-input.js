@@ -1,7 +1,4 @@
-const fs = require('fs');
 const { extractASIN, extractDomain } = require('./amazon-utils');
-
-const DEFAULT_CATEGORY = 'Curtains & Drapes';
 
 function normalizeProductUrl(url) {
   if (!url || typeof url !== 'string') {
@@ -25,6 +22,10 @@ function normalizeProductUrl(url) {
 }
 
 function entryToItem(entry, index, category) {
+  if (!category || typeof category !== 'string' || !category.trim()) {
+    throw new Error('category is required when building product list items');
+  }
+
   const url = typeof entry === 'string' ? entry : entry?.url;
   const normalized = normalizeProductUrl(url);
 
@@ -43,7 +44,11 @@ function entryToItem(entry, index, category) {
   };
 }
 
-function urlsToItems(urls, category = DEFAULT_CATEGORY) {
+function urlsToItems(urls, category) {
+  if (!category || typeof category !== 'string' || !category.trim()) {
+    throw new Error('category is required for urlsToItems');
+  }
+
   const items = [];
 
   for (let index = 0; index < urls.length; index++) {
@@ -57,12 +62,16 @@ function urlsToItems(urls, category = DEFAULT_CATEGORY) {
 }
 
 function loadProductsFromFile(filePath) {
+  const fs = require('fs');
   if (!fs.existsSync(filePath)) {
     throw new Error(`Product list file not found: ${filePath}`);
   }
 
   const raw = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-  const category = raw.category || DEFAULT_CATEGORY;
+  const category = raw.category;
+  if (!category || typeof category !== 'string' || !category.trim()) {
+    throw new Error(`category is required in product list file: ${filePath}`);
+  }
 
   let entries = [];
   if (Array.isArray(raw)) {
@@ -89,9 +98,13 @@ function loadProductsFromFile(filePath) {
 }
 
 function buildProductListPayload(meta, items) {
+  if (!meta.category || typeof meta.category !== 'string' || !meta.category.trim()) {
+    throw new Error('category is required when building product list payload');
+  }
+
   return {
     source: meta.source || 'our-products',
-    category: meta.category || DEFAULT_CATEGORY,
+    category: meta.category,
     domain: items[0]?.domain || 'www.amazon.in',
     total_found: items.length,
     items: items.map((item) => ({
@@ -102,7 +115,6 @@ function buildProductListPayload(meta, items) {
 }
 
 module.exports = {
-  DEFAULT_CATEGORY,
   normalizeProductUrl,
   urlsToItems,
   loadProductsFromFile,

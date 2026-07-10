@@ -1,16 +1,17 @@
 const { BrowserSession } = require('../lib/browser-session');
 const { PAGE_TIMEOUT_MS } = require('../lib/constants');
 
-const DEFAULT_CATEGORY = {
-  name: 'Curtains & Drapes',
-  browseNodeId: '1380479031',
-  url: 'https://www.amazon.in/gp/bestsellers/kitchen/1380479031'
-};
-
 class BestSellersScraper {
   constructor(options = {}) {
+    if (!options.categoryUrl || typeof options.categoryUrl !== 'string' || !options.categoryUrl.trim()) {
+      throw new Error('categoryUrl is required (Amazon bestsellers category URL)');
+    }
+
     this.domain = options.domain || 'www.amazon.in';
-    this.category = options.category || DEFAULT_CATEGORY;
+    this.categoryUrl = options.categoryUrl.trim();
+    this.categoryName = typeof options.categoryName === 'string' && options.categoryName.trim()
+      ? options.categoryName.trim()
+      : null;
     this.limit = options.limit || 10;
     this.session = new BrowserSession({
       cookiesPath: options.cookiesPath,
@@ -19,9 +20,31 @@ class BestSellersScraper {
     });
   }
 
-  buildCategoryUrl() {
-    return this.category.url ||
-      `https://${this.domain}/gp/bestsellers/kitchen/${this.category.browseNodeId}`;
+  async resolveCategoryName(page) {
+    if (this.categoryName) {
+      return this.categoryName;
+    }
+
+    const name = await page.evaluate(() => {
+      const heading =
+        document.querySelector('#zg-right-col h1') ||
+        document.querySelector('.zg-banner-text h1') ||
+        document.querySelector('h1');
+      const text = heading?.textContent?.trim() || '';
+      const match = text.match(/Best\s*Sellers?\s+in\s+(.+)/i);
+      if (match?.[1]) {
+        return match[1].trim();
+      }
+      return text || null;
+    });
+
+    if (!name) {
+      throw new Error(
+        `Could not resolve category name from bestsellers page: ${this.categoryUrl}`
+      );
+    }
+
+    return name;
   }
 
   async parseBestSellersFromPage(page) {
@@ -131,15 +154,14 @@ class BestSellersScraper {
     try {
       await this.session.applyCookies(page, this.domain);
 
-      const categoryUrl = this.buildCategoryUrl();
-      console.log(`Loading best sellers: ${categoryUrl}`);
+      console.log(`Loading best sellers: ${this.categoryUrl}`);
 
-      await page.goto(categoryUrl, { waitUntil: 'domcontentloaded', timeout: PAGE_TIMEOUT_MS });
+      await page.goto(this.categoryUrl, { waitUntil: 'domcontentloaded', timeout: PAGE_TIMEOUT_MS });
       await this.session.sleep(this.session.delayMs);
 
       const pageTitle = await page.title();
       if (pageTitle.toLowerCase().includes('page not found')) {
-        throw new Error(`Category page not found: ${categoryUrl}`);
+        throw new Error(`Category page not found: ${this.categoryUrl}`);
       }
 
       const bodyText = await page.evaluate(() => document.body.innerText);
@@ -153,18 +175,21 @@ class BestSellersScraper {
         console.warn('Best seller grid not found with expected selectors');
       });
 
+      const categoryName = await this.resolveCategoryName(page);
+      this.categoryName = categoryName;
+
       const items = await this.parseBestSellersFromPage(page);
       const topItems = items.slice(0, limit).map((item, index) => ({
         ...item,
         rank: item.rank || index + 1,
-        category: this.category.name,
+        category: categoryName,
         scraped_at: new Date().toISOString()
       }));
 
       return {
         domain: this.domain,
-        category: this.category.name,
-        category_url: categoryUrl,
+        category: categoryName,
+        category_url: this.categoryUrl,
         total_found: items.length,
         items: topItems
       };
@@ -178,4 +203,4 @@ class BestSellersScraper {
   }
 }
 
-module.exports = { BestSellersScraper, DEFAULT_CATEGORY };
+module.exports = { BestSellersScraper };

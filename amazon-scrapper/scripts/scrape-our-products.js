@@ -5,7 +5,7 @@
 const fs = require('fs');
 const path = require('path');
 const { resolveCookiesPath } = require('../src/lib/resolve-cookies');
-const { loadProductsFromFile, buildProductListPayload } = require('../src/lib/product-input');
+const { loadProductsFromFile, buildProductListPayload, urlsToItems } = require('../src/lib/product-input');
 const { scrapeProductDetailsAndReviews, printSummary } = require('../src/lib/scrape-pipeline');
 const { outputPath, configPath, FILE_NAMES } = require('../src/lib/paths');
 
@@ -18,7 +18,8 @@ function parseArgs(argv) {
     headless: 'new',
     reviewsPerStar: 50,
     maxReviews: 250,
-    urls: []
+    urls: [],
+    category: null
   };
 
   for (let i = 2; i < argv.length; i++) {
@@ -34,6 +35,8 @@ function parseArgs(argv) {
       options.cookiesPath = path.resolve(argv[++i]);
     } else if (arg === '--url' && argv[i + 1]) {
       options.urls.push(argv[++i]);
+    } else if (arg === '--category' && argv[i + 1]) {
+      options.category = argv[++i];
     } else if (arg === '--reviews-per-star' && argv[i + 1]) {
       options.reviewsPerStar = parseInt(argv[++i], 10);
     } else if (arg === '--max-reviews' && argv[i + 1]) {
@@ -48,10 +51,12 @@ function parseArgs(argv) {
 
 function loadProductItems(options) {
   if (options.urls.length > 0) {
-    const { urlsToItems, DEFAULT_CATEGORY } = require('../src/lib/product-input');
-    const items = urlsToItems(options.urls, DEFAULT_CATEGORY);
+    if (!options.category) {
+      throw new Error('--category is required when passing --url flags');
+    }
+    const items = urlsToItems(options.urls, options.category);
     return {
-      category: DEFAULT_CATEGORY,
+      category: options.category,
       source: 'our-products',
       items,
       skipped: options.urls.length - items.length
@@ -105,9 +110,12 @@ async function main() {
     source: loaded.source,
     sourceFile: options.urls.length ? null : options.input,
     category: loaded.category,
-    output: options.output,
     stepLabel: 'STEP 2/2: PRODUCT DETAILS + REVIEWS'
   });
+
+  fs.mkdirSync(path.dirname(options.output), { recursive: true });
+  fs.writeFileSync(options.output, JSON.stringify(finalOutput, null, 2), 'utf-8');
+  console.log(`\nSaved product details to ${options.output}`);
 
   printSummary({
     title: 'Our products pipeline complete',

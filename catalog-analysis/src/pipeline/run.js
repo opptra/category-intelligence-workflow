@@ -1,25 +1,28 @@
-const fs = require('fs');
-const path = require('path');
-const { loadConfig } = require('../config');
+const { buildAnalysisConfig } = require('../config');
 const { requireApiKey } = require('../utils/assert');
-const { loadDatasets } = require('./stages/load');
+const { loadDatasetsFromInput } = require('./stages/load');
 const { computeCorpusMetrics } = require('./stages/metrics');
 const { createLlmClient } = require('../services/llm');
 const { buildCategoryStandard } = require('./stages/standards');
 const { mineVoiceOfCustomer } = require('./stages/reviews-mine');
 const { buildVisualStandard } = require('./stages/images');
 const { synthesizeReport } = require('./stages/synthesize-report');
-const { assembleReport, resolveOutputPath } = require('./stages/assemble');
+const { assembleReport } = require('./stages/assemble');
 
 function log(stage, message) {
   console.log(`[${stage}] ${message}`);
 }
 
-async function runAnalysis(config = loadConfig()) {
+async function runAnalysis(options = {}) {
+  if (!options.input) {
+    throw new Error('runAnalysis requires input: { our_products, top_sellers }');
+  }
+
+  const config = buildAnalysisConfig(options);
   requireApiKey(config);
 
-  log('S0', `Loading datasets from ${config.outputDir}...`);
-  const datasets = loadDatasets(config);
+  log('S0', 'Loading datasets from in-memory input...');
+  const datasets = loadDatasetsFromInput(config.input);
   const { competitors, meta } = datasets;
 
   log('S1', 'Computing deterministic metrics...');
@@ -83,14 +86,9 @@ async function runAnalysis(config = loadConfig()) {
     synthesized
   });
 
-  const outputPath = resolveOutputPath(config, meta.category);
-  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-  fs.writeFileSync(outputPath, JSON.stringify(report, null, 2), 'utf-8');
+  log('done', `${report.topics.length} topics, ${report.category_lexicon.terms.length} lexicon terms`);
 
-  log('done', `Wrote ${outputPath}`);
-  log('summary', `${report.topics.length} topics, ${report.category_lexicon.terms.length} lexicon terms`);
-
-  return { outputPath, report };
+  return { report };
 }
 
 module.exports = { runAnalysis };
