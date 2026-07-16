@@ -56,4 +56,4 @@ function loadConfig(argv = process.argv) {
   return buildAnalysisConfig(args);
 }
 
-module.exports = { loadConfig, parseArgs, buildAnalysisConfig };
+module.exports = { loadConfig, buildAnalysisConfig };

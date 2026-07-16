@@ -105,4 +105,4 @@ class BrowserSession {
   }
 }
 
-module.exports = { BrowserSession, DEFAULT_USER_AGENT };
+module.exports = { BrowserSession };

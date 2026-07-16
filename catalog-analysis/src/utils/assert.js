@@ -78,9 +78,6 @@ module.exports = {
   requireNonEmptyArray,
   requireApiKey,
   requireNumber,
-  requireValueKeys,
-  requireNonEmptyStringKeys,
   requireNonEmptyArrayKeys,
-  requireNumberKeys,
   requireFields
 };

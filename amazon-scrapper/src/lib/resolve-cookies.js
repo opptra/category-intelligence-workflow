@@ -4,4 +4,4 @@ function resolveCookiesPath(customPath) {
   return customPath || cookiesPath();
 }
 
-module.exports = { resolveCookiesPath, cookiesPath };
+module.exports = { resolveCookiesPath };

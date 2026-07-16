@@ -26,10 +26,6 @@ function cookiesPath() {
 }
 
 module.exports = {
-  PACKAGE_ROOT,
-  REPO_ROOT,
-  OUTPUT_DIR,
-  CONFIG_DIR,
   FILE_NAMES,
   outputPath,
   configPath,

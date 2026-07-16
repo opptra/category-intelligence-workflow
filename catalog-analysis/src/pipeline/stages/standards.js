@@ -196,7 +196,5 @@ async function buildCategoryStandard({ llm, config, competitors, competitorMetri
 }
 
 module.exports = {
-  buildCategoryStandard,
-  buildDeterministicStandard,
-  buildSpecUnion
+  buildCategoryStandard
 };

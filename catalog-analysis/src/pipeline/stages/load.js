@@ -1,4 +1,3 @@
-const fs = require('fs');
 const {
   requireNonEmptyString,
   requireNonEmptyArray,
@@ -12,14 +11,6 @@ const {
   parseDimensions,
   parsePackCount
 } = require('../../utils/parsers');
-
-function readJson(filePath) {
-  const raw = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-  if (!Array.isArray(raw.products)) {
-    throw new Error(`No products array in ${filePath}`);
-  }
-  return raw;
-}
 
 function normalizeProduct(product, { isOurs }) {
   const price = parsePriceText(product.price_text)
@@ -111,23 +102,6 @@ function loadDatasetsFromInput(input) {
   };
 }
 
-function loadDatasets(config) {
-  if (!config.competitors || !config.ours) {
-    throw new Error('File-based load requires config.competitors and config.ours paths');
-  }
-
-  const competitorRaw = readJson(config.competitors);
-  const oursRaw = readJson(config.ours);
-
-  return loadDatasetsFromInput({
-    top_sellers: competitorRaw,
-    our_products: oursRaw
-  });
-}
-
 module.exports = {
-  loadDatasets,
-  loadDatasetsFromInput,
-  normalizeProduct,
-  parseDataset
+  loadDatasetsFromInput
 };

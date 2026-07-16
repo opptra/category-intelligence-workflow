@@ -52,8 +52,6 @@ function normalizeReportSections({ category_lexicon, voice_of_customer }) {
 }
 
 module.exports = {
-  filterLexiconTerms,
-  filterVoiceSignals,
   normalizeReportSections,
   MAX_LEXICON_OUTPUT,
   MAX_SIGNALS_OUTPUT

@@ -68,4 +68,4 @@ async function runCatalogPipeline({
   return { report, outputPath, scrapeResult };
 }
 
-module.exports = { runCatalogPipeline, OUTPUT_DIR };
+module.exports = { runCatalogPipeline };

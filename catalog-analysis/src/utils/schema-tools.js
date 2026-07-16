@@ -23,7 +23,5 @@ function toolDefinition(schemaId, description) {
 }
 
 module.exports = {
-  SCHEMAS_DIR,
-  loadSchema,
   toolDefinition
 };

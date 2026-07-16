@@ -7,15 +7,6 @@ function median(values) {
   return nums.length % 2 ? nums[mid] : (nums[mid - 1] + nums[mid]) / 2;
 }
 
-function percentile(values, p) {
-  const nums = values.filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
-  if (!nums.length) {
-    return null;
-  }
-  const idx = Math.ceil((p / 100) * nums.length) - 1;
-  return nums[Math.max(0, Math.min(nums.length - 1, idx))];
-}
-
 function band(values) {
   const nums = values.filter((v) => Number.isFinite(v));
   if (!nums.length) {
@@ -141,20 +132,6 @@ function aggregateNorms(metrics) {
   };
 }
 
-function collectAllReviews(products) {
-  const reviews = [];
-  for (const product of products) {
-    for (const item of product.reviews?.items || []) {
-      reviews.push({
-        asin: product.asin,
-        is_ours: product.is_ours,
-        ...item
-      });
-    }
-  }
-  return reviews;
-}
-
 function sampleReviewsForMining(reviews, config) {
   const negatives = reviews
     .filter((r) => r.rating <= 2)
@@ -170,31 +147,9 @@ function sampleReviewsForMining(reviews, config) {
   return [...byId.values()];
 }
 
-function collectTextCorpus(products) {
-  const chunks = [];
-  for (const product of products) {
-    chunks.push(product.title || '');
-    chunks.push(...(product.feature_bullets || []));
-    if (product.description) {
-      chunks.push(product.description);
-    }
-    chunks.push(...(product.aplus_text_blocks || []));
-    for (const [key, value] of Object.entries(product.product_details || {})) {
-      chunks.push(`${key}: ${value}`);
-    }
-  }
-  return chunks.join('\n');
-}
-
 module.exports = {
   median,
-  percentile,
-  band,
-  computeProductMetrics,
   computeCorpusMetrics,
   aggregateNorms,
-  collectAllReviews,
-  sampleReviewsForMining,
-  collectTextCorpus,
-  starDistributionShape
+  sampleReviewsForMining
 };

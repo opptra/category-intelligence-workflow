@@ -179,8 +179,5 @@ async function synthesizeReport({
 }
 
 module.exports = {
-  synthesizeReport,
-  buildMetricsContext,
-  synthesizeCore,
-  synthesizeTopics
+  synthesizeReport
 };

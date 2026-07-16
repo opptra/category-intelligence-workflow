@@ -115,7 +115,6 @@ function buildProductListPayload(meta, items) {
 }
 
 module.exports = {
-  normalizeProductUrl,
   urlsToItems,
   loadProductsFromFile,
   buildProductListPayload

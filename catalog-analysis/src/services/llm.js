@@ -163,4 +163,4 @@ function createLlmClient(config) {
   };
 }
 
-module.exports = { createLlmClient, extractJson };
+module.exports = { createLlmClient };

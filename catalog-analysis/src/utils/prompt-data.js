@@ -158,12 +158,6 @@ module.exports = {
   groupReviewsByRating,
   formatLeaderTitles,
   formatListingCopy,
-  formatKeywordMap,
-  formatMinedVoice,
-  formatSpecPatterns,
-  formatVisionSummary,
   buildSynthesisResearch,
-  buildSynthesisTopicsResearch,
-  pickCatalogSpecs,
-  SPEC_EXCLUDE_KEYS
+  buildSynthesisTopicsResearch
 };

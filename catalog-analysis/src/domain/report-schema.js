@@ -121,7 +121,5 @@ function validateReport(report) {
 module.exports = {
   SCHEMA_VERSION,
   REQUIRED_TOPIC_NAMES,
-  MAX_LEXICON_OUTPUT,
-  MAX_SIGNALS_OUTPUT,
   validateReport
 };

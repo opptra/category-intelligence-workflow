@@ -363,4 +363,4 @@ class ReviewsScraper {
   }
 }
 
-module.exports = { ReviewsScraper, STAR_FILTERS, DEFAULT_LIMITS };
+module.exports = { ReviewsScraper };

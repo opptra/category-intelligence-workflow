@@ -361,11 +361,5 @@ async function buildVisualStandard({ llm, config, competitors, ours, log }) {
 }
 
 module.exports = {
-  buildVisualStandard,
-  analyzeProductGalleries,
-  aggregateVisualStandard,
-  buildProductMontage,
-  buildAplusMontage,
-  buildMontageForType,
-  downloadImage
+  buildVisualStandard
 };
