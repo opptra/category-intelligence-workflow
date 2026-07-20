@@ -54,18 +54,43 @@ function formatLeaderTitles(competitors) {
   return competitors.map((p) => (p.title || '').trim()).filter(Boolean);
 }
 
-function formatListingCopy(competitors, {
+function formatListingCopy(products, {
   maxBullets = 5,
-  bulletMax = 320,
-  aplusMax = 12,
-  aplusTextMax = 180
+  bulletMax = 240,
+  aplusMax = 6,
+  aplusTextMax = 120,
+  maxSpecKeys = 10
 } = {}) {
-  return competitors.map((p) => ({
-    title: (p.title || '').trim(),
-    bullets: (p.feature_bullets || []).slice(0, maxBullets).map((b) => b.slice(0, bulletMax)),
-    aplus: (p.aplus_text_blocks || []).slice(0, aplusMax).map((t) => t.slice(0, aplusTextMax)),
-    specs: pickCatalogSpecs(p.product_details)
-  }));
+  return products.map((p) => {
+    const specs = pickCatalogSpecs(p.product_details);
+    const trimmedSpecs = {};
+    for (const [key, value] of Object.entries(specs).slice(0, maxSpecKeys)) {
+      trimmedSpecs[key] = value;
+    }
+    return {
+      title: (p.title || '').trim(),
+      bullets: (p.feature_bullets || []).slice(0, maxBullets).map((b) => b.slice(0, bulletMax)),
+      aplus: (p.aplus_text_blocks || []).slice(0, aplusMax).map((t) => t.slice(0, aplusTextMax)),
+      specs: trimmedSpecs
+    };
+  });
+}
+
+/**
+ * Compact catalog-level digest of our listings (no ASINs).
+ */
+function formatOurCatalogDigest(ours, { maxListings = 8, maxBullets = 4, bulletMax = 220 } = {}) {
+  return {
+    n: ours.length,
+    listings: ours.slice(0, maxListings).map((p) => ({
+      title: (p.title || '').trim().slice(0, 180),
+      bullets: (p.feature_bullets || []).slice(0, maxBullets).map((b) => b.slice(0, bulletMax)),
+      image_count: (p.product_images || []).length,
+      aplus_present: (p.aplus_images || []).length > 0 || (p.aplus_text_blocks || []).length > 0,
+      rating: p.normalized?.rating ?? null,
+      review_count: p.normalized?.review_count ?? null
+    }))
+  };
 }
 
 function formatKeywordMap(keywordMap) {
@@ -80,13 +105,35 @@ function formatKeywordMap(keywordMap) {
   };
 }
 
+function formatCorpusVoice(corpus) {
+  if (!corpus) {
+    return { signals: [], themes: { praise: [], complaints: [], objections: [] }, sampled_count: 0 };
+  }
+  return {
+    // Cap for synthesis prompt size — full mines stay in stage output only
+    signals: (corpus.signals || []).slice(0, 25),
+    themes: corpus.themes || { praise: [], complaints: [], objections: [] },
+    sampled_count: corpus.sampled_count || 0
+  };
+}
+
+/**
+ * Research-only shape: leaders vs ours mines stay internal so synthesis can merge
+ * into a single voice_of_customer in the report.
+ */
 function formatMinedVoice(voiceOfCustomer) {
   if (!voiceOfCustomer) {
     return null;
   }
+  if (voiceOfCustomer.leaders || voiceOfCustomer.ours) {
+    return {
+      leaders: formatCorpusVoice(voiceOfCustomer.leaders),
+      ours: formatCorpusVoice(voiceOfCustomer.ours)
+    };
+  }
   return {
-    signals: (voiceOfCustomer.signals || []).slice(0, 40),
-    themes: voiceOfCustomer.themes || { praise: [], complaints: [], objections: [] }
+    leaders: formatCorpusVoice(voiceOfCustomer),
+    ours: formatCorpusVoice(null)
   };
 }
 
@@ -106,6 +153,7 @@ function formatSpecPatterns(categoryStandard) {
 
 function formatVisionSummary(visualStandard) {
   const gallery = visualStandard.gallery_standard || {};
+  const oursVs = visualStandard.ours_vs_leaders || {};
   return {
     gallery: {
       roles: (gallery.required_roles || []).slice(0, 10),
@@ -116,24 +164,47 @@ function formatVisionSummary(visualStandard) {
       (visualStandard.per_product_aplus || [])
         .flatMap((p) => p.quality_notes || [])
     )].slice(0, 12),
-    galleries_analyzed: (visualStandard.per_product_gallery || []).length
+    galleries_analyzed: (visualStandard.per_product_gallery || []).length,
+    ours_vs_leaders: {
+      galleries_analyzed: oursVs.galleries_analyzed || 0,
+      median_image_count: oursVs.median_image_count ?? null,
+      role_rates: (oursVs.role_rates || []).slice(0, 12),
+      missing_vs_leader_required: (oursVs.missing_vs_leader_required || []).slice(0, 10)
+    }
+  };
+}
+
+function formatCatalogGapsForResearch(catalogGaps) {
+  if (!catalogGaps) return null;
+  return {
+    summary: catalogGaps.summary,
+    metric_deltas: (catalogGaps.metric_deltas || []).slice(0, 12),
+    missing_visual_roles: (catalogGaps.missing_visual_roles || []).slice(0, 10),
+    missing_spec_keys: (catalogGaps.missing_spec_keys || []).slice(0, 12),
+    missing_lexicon_terms: (catalogGaps.missing_lexicon_terms || []).slice(0, 20),
+    our_norms: catalogGaps.our_norms,
+    leader_norms: catalogGaps.leader_norms
   };
 }
 
 function buildSynthesisResearch({
   category,
   competitors,
+  ours,
   categoryStandard,
   voiceOfCustomer,
   visualStandard,
-  metricsContext
+  metricsContext,
+  catalogGaps
 }) {
   return {
     category,
-    n: competitors.length,
+    n_leaders: competitors.length,
+    n_ours: ours?.length || 0,
     metrics: metricsContext,
     titles: formatLeaderTitles(competitors),
     listings: formatListingCopy(competitors),
+    our_catalog: formatOurCatalogDigest(ours || []),
     copy: {
       title_pattern: categoryStandard.title?.template,
       title_tokens: categoryStandard.title?.required_tokens,
@@ -144,7 +215,8 @@ function buildSynthesisResearch({
     },
     specs: formatSpecPatterns(categoryStandard),
     voice: formatMinedVoice(voiceOfCustomer),
-    vision: formatVisionSummary(visualStandard)
+    vision: formatVisionSummary(visualStandard),
+    catalog_gaps: formatCatalogGapsForResearch(catalogGaps)
   };
 }
 
@@ -158,6 +230,7 @@ module.exports = {
   groupReviewsByRating,
   formatLeaderTitles,
   formatListingCopy,
+  formatOurCatalogDigest,
   buildSynthesisResearch,
   buildSynthesisTopicsResearch
 };

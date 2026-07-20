@@ -69,7 +69,7 @@ function validateVoiceSignals(signals) {
 
 async function synthesizeCore({ llm, config, category, research }) {
   const result = await llm.completeTool({
-    system: 'You synthesize Amazon category research into a concise intelligence report.',
+    system: 'You synthesize Amazon category research into a concise intelligence report focused on how top sellers win.',
     tool: SYNTHESIZE_CORE_TOOL,
     user: `Category: ${category}
 
@@ -78,11 +78,17 @@ ${compactJson(research)}
 
 Write the core sections of a category intelligence report.
 
+Priority:
+1. Primary — how top sellers win (patterns, vocabulary, buyer expectations)
+2. Secondary — catalog-level gaps vs that bar using catalog_gaps, our_catalog, and vision.ours_vs_leaders. Reference our catalog only in aggregate.
+
 Rules:
-- category_lexicon.terms: seller/search terms from competitor listings only; classify each as high, medium, or low relevance; include low-relevance terms for completeness — they will be filtered later
-- voice_of_customer.signals: buyer phrases from reviews with sentiment (praise, complaint, objection, neutral), relevance, and approximate mention_count from the sample; include complaints and objections, not only praise
-- No ASINs, no framework IDs, no per-seller gap callouts`,
-    maxTokens: 4096
+- category_lexicon.observations: required non-empty paragraph on how leaders use seller vocabulary (write this before terms)
+- category_lexicon.terms: ~30–50 seller/search terms from competitor/leader listings only; classify each as high, medium, or low relevance
+- voice_of_customer: ONE unified section. Research.voice may include separate leader/our review mines for context — merge into a single non-empty observations narrative and a single signals[] list. Do not output leaders/ours buckets, source labels, or ASINs
+- voice_of_customer.signals: buyer phrases with sentiment (praise, complaint, objection, neutral), relevance, and approximate mention_count; include complaints and objections, not only praise; keep to ~25–40 signals
+- No ASINs, no framework IDs, no per-SKU gap callouts — catalog-level only`,
+    maxTokens: 20000
   });
 
   requireFields(result, {
@@ -121,11 +127,13 @@ ${compactJson({ summary: core.summary, lexicon: core.category_lexicon.observatio
 Required topic names (each exactly once): ${topicList}
 
 Rules:
+- Primary focus: how top sellers win on each topic
+- Secondary: note catalog-level shortfalls vs that bar when catalog_gaps / our_catalog / vision.ours_vs_leaders support it
 - observations are research findings in prose
-- actions are category-wide, not our-SKU specific
+- actions are category-wide playbook steps; may mention aggregated catalog gaps, never individual SKUs/ASINs
 - topics.keywords should reference category_lexicon for vocabulary, not duplicate the full term list
 - No framework IDs or ASINs`,
-    maxTokens: 6144
+    maxTokens: 20000
   });
 
   requireNonEmptyArray(result.topics, 'synthesized topics');
@@ -152,19 +160,23 @@ async function synthesizeReport({
   config,
   category,
   competitors,
+  ours,
   categoryStandard,
   voiceOfCustomer,
   visualStandard,
-  competitorMetrics
+  competitorMetrics,
+  catalogGaps
 }) {
   const metricsContext = buildMetricsContext(competitorMetrics, categoryStandard);
   const research = buildSynthesisResearch({
     category,
     competitors,
+    ours,
     categoryStandard,
     voiceOfCustomer,
     visualStandard,
-    metricsContext
+    metricsContext,
+    catalogGaps
   });
 
   const core = await synthesizeCore({ llm, config, category, research });
@@ -174,7 +186,8 @@ async function synthesizeReport({
     summary: core.summary,
     category_lexicon: core.category_lexicon,
     voice_of_customer: core.voice_of_customer,
-    topics
+    topics,
+    catalog_gaps: catalogGaps
   };
 }
 

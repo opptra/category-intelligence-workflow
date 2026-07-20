@@ -21,11 +21,13 @@ function assembleReport({ meta, config, synthesized }) {
       marketplace: meta.domain,
       generated_at: new Date().toISOString(),
       competitor_count: meta.competitor_count,
+      our_count: meta.our_count,
       model: config.model
     },
     summary: synthesized.summary,
     category_lexicon: normalized.category_lexicon,
     voice_of_customer: normalized.voice_of_customer,
+    catalog_gaps: synthesized.catalog_gaps,
     topics: synthesized.topics
   };
 

@@ -6,7 +6,7 @@
   "properties": {
     "summary": {
       "type": "string",
-      "description": "One paragraph on what winning listings share and what buyers care about"
+      "description": "Primary focus: how top sellers win in this category. Briefly note catalog-level shortfalls vs that bar when relevant."
     },
     "category_lexicon": {
       "type": "object",
@@ -40,7 +40,8 @@
       "required": ["observations", "signals"],
       "properties": {
         "observations": {
-          "type": "string"
+          "type": "string",
+          "description": "Unified category buyer-language summary. Research may include separate leader/our review mines — merge into one narrative; do not label buckets in the output."
         },
         "signals": {
           "type": "array",

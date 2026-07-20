@@ -175,14 +175,20 @@ async function mapWithConcurrency(items, limit, worker) {
 
 function validateVisionAnalysis(analysis, { asin, galleryType }) {
   const labelPrefix = `vision for ${asin} (${galleryType})`;
-  const keys = ['cells', 'present_roles', 'quality_notes'];
-  if (galleryType === 'product') {
-    keys.splice(2, 0, 'hero_conventions');
-  }
-  requireNonEmptyArrayKeys(analysis, keys, labelPrefix);
+  requireNonEmptyArrayKeys(analysis, ['cells', 'present_roles'], labelPrefix);
 
   for (const cell of analysis.cells) {
     requireNonEmptyString(cell.role, `vision cell role for ${asin} (${galleryType}) cell ${cell.cell}`);
+  }
+
+  // Optional / often-empty fields — normalize instead of failing the whole run
+  if (!Array.isArray(analysis.quality_notes)) {
+    analysis.quality_notes = [];
+  }
+  if (galleryType === 'product') {
+    if (!Array.isArray(analysis.hero_conventions)) {
+      analysis.hero_conventions = [];
+    }
   }
 
   return analysis;
@@ -267,6 +273,65 @@ async function analyzeProductGalleries({
   });
 }
 
+function collectRolePresenceCounts(galleryResults) {
+  const roleCounts = new Map();
+  for (const result of galleryResults) {
+    const roles = new Set([
+      ...(result.present_roles || []),
+      ...(result.cells || []).map((cell) => cell.role).filter(Boolean)
+    ]);
+    for (const role of roles) {
+      if (role === 'other') continue;
+      roleCounts.set(role, (roleCounts.get(role) || 0) + 1);
+    }
+  }
+  return roleCounts;
+}
+
+/**
+ * Aggregate our galleries vs leader-required roles (catalog-level, no ASINs).
+ */
+function aggregateOursVsLeaders(ourGalleryResults, requiredRoles) {
+  const n = ourGalleryResults.length;
+  if (!n) {
+    return {
+      galleries_analyzed: 0,
+      role_rates: [],
+      missing_vs_leader_required: [...(requiredRoles || [])],
+      median_image_count: null
+    };
+  }
+
+  const roleCounts = collectRolePresenceCounts(ourGalleryResults);
+  const role_rates = [...roleCounts.entries()]
+    .map(([role, count]) => ({
+      role,
+      presence_rate: Math.round((count / n) * 100) / 100
+    }))
+    .sort((a, b) => b.presence_rate - a.presence_rate);
+
+  const missing_vs_leader_required = (requiredRoles || []).filter((role) => {
+    const count = roleCounts.get(role) || 0;
+    return count / n < 0.5;
+  });
+
+  const imageCounts = ourGalleryResults
+    .map((r) => r.image_count)
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b);
+  const mid = Math.floor(imageCounts.length / 2);
+  const median_image_count = imageCounts.length
+    ? (imageCounts.length % 2 ? imageCounts[mid] : (imageCounts[mid - 1] + imageCounts[mid]) / 2)
+    : null;
+
+  return {
+    galleries_analyzed: n,
+    role_rates,
+    missing_vs_leader_required,
+    median_image_count
+  };
+}
+
 function aggregateVisualStandard(galleryResults, aplusResults) {
   requireNonEmptyArray(galleryResults, 'competitor product gallery vision results');
 
@@ -276,34 +341,51 @@ function aggregateVisualStandard(galleryResults, aplusResults) {
   const aplusTopics = new Set();
 
   for (const result of galleryResults) {
-    for (const role of result.present_roles) {
+    for (const role of result.present_roles || []) {
       roleCounts.set(role, (roleCounts.get(role) || 0) + 1);
     }
-    for (const cell of result.cells) {
-      roleCounts.set(cell.role, (roleCounts.get(cell.role) || 0) + 1);
+    for (const cell of result.cells || []) {
+      if (cell.role) {
+        roleCounts.set(cell.role, (roleCounts.get(cell.role) || 0) + 1);
+      }
     }
-    for (const note of result.hero_conventions) {
-      heroConventions.add(note);
+    for (const note of result.hero_conventions || []) {
+      if (note) heroConventions.add(note);
     }
-    for (const note of result.quality_notes) {
-      qualityNotes.add(note);
+    for (const note of result.quality_notes || []) {
+      if (note) qualityNotes.add(note);
     }
   }
 
   const competitorCount = galleryResults.length;
-  const requiredRoles = [...roleCounts.entries()]
+  let requiredRoles = [...roleCounts.entries()]
     .filter(([, count]) => count / competitorCount >= 0.5)
     .map(([role]) => role)
     .filter((role) => role !== 'other');
 
-  requireNonEmptyArray(requiredRoles, 'aggregated gallery required_roles');
-  requireNonEmptyArray([...heroConventions], 'aggregated gallery hero_conventions');
+  // Fallback if no role reaches 50% presence (diverse galleries / soft model labels)
+  if (!requiredRoles.length) {
+    requiredRoles = [...roleCounts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([role]) => role)
+      .filter((role) => role !== 'other')
+      .slice(0, 6);
+  }
+
+  if (!requiredRoles.length) {
+    requiredRoles = ['hero'];
+  }
+
+  const heroList = [...heroConventions];
+  if (!heroList.length) {
+    heroList.push('clean product-forward hero on simple background');
+  }
 
   for (const result of aplusResults) {
-    for (const note of result.quality_notes) {
-      aplusTopics.add(note);
+    for (const note of result.quality_notes || []) {
+      if (note) aplusTopics.add(note);
     }
-    for (const cell of result.cells) {
+    for (const cell of result.cells || []) {
       if (cell.role && cell.role !== 'other') {
         aplusTopics.add(cell.role);
       }
@@ -313,7 +395,7 @@ function aggregateVisualStandard(galleryResults, aplusResults) {
   return {
     gallery_standard: {
       required_roles: requiredRoles,
-      hero_conventions: [...heroConventions],
+      hero_conventions: heroList,
       quality_notes: [...qualityNotes]
     },
     aplus_topics_from_vision: [...aplusTopics],
@@ -353,13 +435,19 @@ async function buildVisualStandard({ llm, config, competitors, ours, log }) {
   });
 
   const aggregated = aggregateVisualStandard(competitorGallery, competitorAplus);
+  const ours_vs_leaders = aggregateOursVsLeaders(
+    ourGalleryInternal,
+    aggregated.gallery_standard.required_roles
+  );
 
   return {
     ...aggregated,
-    our_gallery_internal: ourGalleryInternal
+    our_gallery_internal: ourGalleryInternal,
+    ours_vs_leaders
   };
 }
 
 module.exports = {
-  buildVisualStandard
+  buildVisualStandard,
+  aggregateOursVsLeaders
 };

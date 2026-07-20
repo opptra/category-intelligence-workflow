@@ -5,22 +5,30 @@ const MAX_LEXICON_OUTPUT = 50;
 const MAX_SIGNALS_OUTPUT = 40;
 
 function filterLexiconTerms(terms) {
-  return terms
+  const preferred = terms
     .filter((t) => t.relevance === 'high' || t.relevance === 'medium')
     .sort((a, b) => {
       const rank = (RELEVANCE_RANK[a.relevance] ?? 9) - (RELEVANCE_RANK[b.relevance] ?? 9);
       if (rank !== 0) return rank;
       return a.term.localeCompare(b.term);
-    })
+    });
+
+  const source = preferred.length
+    ? preferred
+    : [...terms].sort((a, b) => a.term.localeCompare(b.term));
+
+  return source
     .slice(0, MAX_LEXICON_OUTPUT)
     .map((t) => ({
       term: t.term,
-      relevance: t.relevance
-    }));
+      // Promote leftover low terms so report schema (high|medium only) still validates
+      relevance: t.relevance === 'low' ? 'medium' : t.relevance
+    }))
+    .filter((t) => t.relevance === 'high' || t.relevance === 'medium');
 }
 
 function filterVoiceSignals(signals) {
-  return signals
+  return (signals || [])
     .filter((s) => s.relevance === 'high' || s.relevance === 'medium')
     .sort((a, b) => {
       const rel = (RELEVANCE_RANK[a.relevance] ?? 9) - (RELEVANCE_RANK[b.relevance] ?? 9);

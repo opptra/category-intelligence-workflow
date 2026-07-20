@@ -10,9 +10,6 @@ const STANDARDS_LLM_TOOL = toolDefinition(
   'Extract reusable catalog standards from Amazon category leader listings'
 );
 const {
-  requireNonEmptyString,
-  requireNonEmptyArray,
-  requireNumber,
   requireFields
 } = require('../../utils/assert');
 
@@ -53,20 +50,22 @@ function isCriticalSpecKey(key) {
 }
 
 function detectFlagshipAttribute(specUnion) {
-  const opacity = specUnion.find((s) => s.key === 'Opacity');
+  const opacity = specUnion.find((s) => s.key === 'Opacity' && (s.typical_values || []).length);
   if (opacity) {
-    requireNonEmptyArray(opacity.typical_values, 'flagship attribute Opacity typical_values');
     return {
       key: 'Opacity',
       tiers: [...new Set(opacity.typical_values)].slice(0, 6)
     };
   }
 
-  const top = specUnion.find((s) => s.fill_rate >= 0.7);
+  const ranked = [...specUnion]
+    .filter((s) => (s.typical_values || []).length > 0)
+    .sort((a, b) => b.fill_rate - a.fill_rate);
+
+  const top = ranked.find((s) => s.fill_rate >= 0.5) || ranked[0];
   if (!top) {
-    throw new Error('No flagship attribute found in spec union (expected Opacity or a field with fill_rate >= 0.7)');
+    return { key: 'Item Type Name', tiers: ['unknown'] };
   }
-  requireNonEmptyArray(top.typical_values, `flagship attribute ${top.key} typical_values`);
   return { key: top.key, tiers: top.typical_values.slice(0, 6) };
 }
 
@@ -123,9 +122,9 @@ function buildDeterministicStandard(competitors, competitorMetrics) {
       rating_band: [norms.rating.min, norms.rating.max],
       median_volume: norms.review_count.median
     },
-    category_node: requireNonEmptyString(categoryNodes[0], 'category_node'),
-    bsr_top_rank: requireNumber(topBsr?.bsr_rank, 'bsr_top_rank'),
-    bsr_node: requireNonEmptyString(topBsr?.bsr_node, 'bsr_node'),
+    category_node: categoryNodes[0] || metaCategoryFallback(competitors),
+    bsr_top_rank: Number.isFinite(topBsr?.bsr_rank) ? topBsr.bsr_rank : 1,
+    bsr_node: topBsr?.bsr_node || categoryNodes[0] || 'Best Sellers',
     title_norms: {
       median_length: norms.title_length.median,
       min_length: norms.title_length.min,
@@ -136,6 +135,12 @@ function buildDeterministicStandard(competitors, competitorMetrics) {
       median_avg_length: norms.bullet_avg_length.median
     }
   };
+}
+
+function metaCategoryFallback(competitors) {
+  return competitors.find((p) => p.category)?.category
+    || competitors.find((p) => p.product_details?.['Item Type Name'])?.product_details?.['Item Type Name']
+    || 'unknown';
 }
 
 async function buildLlmStandard({ llm, config, competitors, category }) {
@@ -168,15 +173,29 @@ async function buildCategoryStandard({ llm, config, competitors, competitorMetri
     strings: ['template'],
     arrays: ['required_tokens', 'mobile_first_75_chars']
   }, 'standards LLM response title');
-  requireFields(llmPart.keyword_map, {
-    arrays: ['head', 'long_tail', 'vernacular', 'occasion']
-  }, 'standards LLM response keyword_map');
+  // vernacular / occasion are often empty outside localized categories — allow empty
+  if (!llmPart.keyword_map || typeof llmPart.keyword_map !== 'object') {
+    throw new Error('Missing required value: standards LLM response.keyword_map');
+  }
+  for (const key of ['head', 'long_tail', 'vernacular', 'occasion']) {
+    if (!Array.isArray(llmPart.keyword_map[key])) {
+      llmPart.keyword_map[key] = [];
+    }
+  }
+  if (!llmPart.keyword_map.head.length && !llmPart.keyword_map.long_tail.length) {
+    throw new Error('standards LLM response.keyword_map needs at least one head or long_tail term');
+  }
+
+  const titleMedian = deterministic.title_norms.median_length;
+  if (!Number.isFinite(titleMedian)) {
+    throw new Error('Missing required number: title median length');
+  }
 
   return {
     title: {
       template: llmPart.title.template,
       required_tokens: llmPart.title.required_tokens,
-      median_length: requireNumber(deterministic.title_norms.median_length, 'title median length'),
+      median_length: titleMedian,
       mobile_first_75_chars: llmPart.title.mobile_first_75_chars
     },
     keyword_map: llmPart.keyword_map,

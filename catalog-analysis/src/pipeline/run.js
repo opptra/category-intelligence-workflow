@@ -6,6 +6,7 @@ const { createLlmClient } = require('../services/llm');
 const { buildCategoryStandard } = require('./stages/standards');
 const { mineVoiceOfCustomer } = require('./stages/reviews-mine');
 const { buildVisualStandard } = require('./stages/images');
+const { buildCatalogGaps } = require('./stages/catalog-gaps');
 const { synthesizeReport } = require('./stages/synthesize-report');
 const { assembleReport } = require('./stages/assemble');
 
@@ -23,10 +24,11 @@ async function runAnalysis(options = {}) {
 
   log('S0', 'Loading datasets from in-memory input...');
   const datasets = loadDatasetsFromInput(config.input);
-  const { competitors, meta } = datasets;
+  const { competitors, ours, meta } = datasets;
 
   log('S1', 'Computing deterministic metrics...');
   const competitorMetrics = computeCorpusMetrics(competitors);
+  const ourMetrics = computeCorpusMetrics(ours);
 
   const llm = createLlmClient(config);
 
@@ -39,20 +41,21 @@ async function runAnalysis(options = {}) {
     category: meta.category
   });
 
-  log('S3', 'Mining voice of customer...');
+  log('S3', 'Mining voice of customer (leaders vs ours)...');
   const voiceOfCustomer = await mineVoiceOfCustomer({
     llm,
     config,
-    allProducts: datasets.all,
+    competitors,
+    ours,
     category: meta.category
   });
 
-  log('S4', 'Analyzing competitor galleries...');
+  log('S4', 'Analyzing galleries (leaders + ours)...');
   const visualStandard = await buildVisualStandard({
     llm,
     config,
     competitors,
-    ours: datasets.ours,
+    ours,
     log
   });
 
@@ -67,16 +70,27 @@ async function runAnalysis(options = {}) {
     topics: visualStandard.aplus_topics_from_vision
   };
 
+  log('S4b', 'Computing catalog-level gaps vs leaders...');
+  const catalogGaps = buildCatalogGaps({
+    competitorMetrics,
+    ourMetrics,
+    categoryStandard,
+    ours,
+    visualStandard
+  });
+
   log('S5', 'Synthesizing category intelligence report...');
   const synthesized = await synthesizeReport({
     llm,
     config,
     category: meta.category,
     competitors,
+    ours,
     categoryStandard,
     voiceOfCustomer,
     visualStandard,
-    competitorMetrics
+    competitorMetrics,
+    catalogGaps
   });
 
   log('S6', 'Assembling report...');
@@ -86,7 +100,11 @@ async function runAnalysis(options = {}) {
     synthesized
   });
 
-  log('done', `${report.topics.length} topics, ${report.category_lexicon.terms.length} lexicon terms`);
+  log(
+    'done',
+    `${report.topics.length} topics, ${report.category_lexicon.terms.length} lexicon terms, `
+    + `${report.catalog_gaps.missing_lexicon_terms.length} lexicon gaps`
+  );
 
   return { report };
 }
