@@ -12,7 +12,8 @@ function parseArgs(argv) {
     headless: 'new',
     reviewsPerStar: 50,
     maxReviews: 250,
-    concurrency: null
+    concurrency: null,
+    jobId: null
   };
 
   for (let i = 2; i < argv.length; i++) {
@@ -31,6 +32,8 @@ function parseArgs(argv) {
       options.maxReviews = parseInt(argv[++i], 10);
     } else if (arg === '--concurrency' && argv[i + 1]) {
       options.concurrency = parseInt(argv[++i], 10);
+    } else if ((arg === '--job-id' || arg === '--job') && argv[i + 1]) {
+      options.jobId = argv[++i];
     } else if (arg === '--headed') {
       options.headless = false;
     } else if (arg === '--help' || arg === '-h') {
@@ -44,10 +47,15 @@ function parseArgs(argv) {
 function printHelp() {
   console.log(`Usage:
   node src/cli.js --category-url <bestsellers-url> --url <product-url> [--url ...] [options]
+  node src/cli.js --job-id <existing-job-id>   # resume a failed/partial run
 
-Required:
+Required (new job):
   --category-url <url>   Amazon bestsellers category URL
   --url <url>            Our product URL (repeatable)
+
+Resume:
+  --job-id <id>          Resume from output/<job-id>/temp checkpoints
+                         (category/urls optional if scrape already saved)
 
 Optional:
   --top-n <n>            Number of top sellers to fetch (default: 10)
@@ -56,6 +64,12 @@ Optional:
   --reviews-per-star <n> Reviews per star bucket (default: 50; lower = faster)
   --max-reviews <n>      Max reviews per product (default: 250; lower = faster)
   --headed               Run browser headed
+
+Job layout:
+  output/<job-id>/
+    meta.json
+    temp/                # stage checkpoints (survive failures)
+    output/              # final scrape + analysis when complete
 `);
 }
 
@@ -66,15 +80,19 @@ async function main() {
     return;
   }
 
-  if (!options.categoryUrl) {
-    throw new Error('--category-url is required');
-  }
-  if (options.ourProductUrls.length === 0) {
-    throw new Error('At least one --url is required');
+  if (!options.jobId) {
+    if (!options.categoryUrl) {
+      throw new Error('--category-url is required (or pass --job-id to resume)');
+    }
+    if (options.ourProductUrls.length === 0) {
+      throw new Error('At least one --url is required (or pass --job-id to resume)');
+    }
   }
 
-  const { outputPath, scrapePath, report } = await runCatalogPipeline(options);
+  const { outputPath, scrapePath, report, jobId, jobDir } = await runCatalogPipeline(options);
   console.log('\nPipeline complete.');
+  console.log(`Job:      ${jobId}`);
+  console.log(`Job dir:  ${jobDir}`);
   console.log(`Category: ${report.meta.category}`);
   console.log(`Analysis: ${outputPath}`);
   console.log(`Scrape:   ${scrapePath}`);

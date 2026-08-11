@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["voice_of_customer"],
+  "properties": {
+    "voice_of_customer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observations", "signals"],
+      "properties": {
+        "observations": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Unified category buyer-language summary. Merge leader/our review mines into one narrative; do not label buckets."
+        },
+        "signals": {
+          "type": "array",
+          "minItems": 15,
+          "maxItems": 50,
+          "description": "Buyer phrases from reviews; aim for ~25–40 when the sample supports it; include complaints and objections, not only praise",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["phrase", "sentiment", "relevance", "mention_count"],
+            "properties": {
+              "phrase": { "type": "string", "minLength": 1 },
+              "sentiment": {
+                "type": "string",
+                "enum": ["praise", "complaint", "objection", "neutral"]
+              },
+              "relevance": {
+                "type": "string",
+                "enum": ["high", "medium", "low"]
+              },
+              "mention_count": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -165,17 +165,36 @@ function deriveTitleFallback(competitors) {
     }
   }
 
-  const mobile = titles
+  const within75 = titles.filter((title) => title.length <= 75);
+  const compliantRate = titles.length ? within75.length / titles.length : 0;
+  const mobile = (within75.length ? within75 : titles)
     .map((title) => title.slice(0, 75).trim())
+    .filter(Boolean)
+    .slice(0, 5);
+
+  const highlightSeeds = titles
+    .map((title) => {
+      if (title.length <= 75) return '';
+      return title.slice(75).replace(/^[\s|\-–,]+/, '').trim().slice(0, 125);
+    })
     .filter(Boolean)
     .slice(0, 5);
 
   return {
     template: titles[0]
-      ? `Brand + Product Type + Key Specs + Pack Size (pattern from leaders e.g. "${titles[0].slice(0, 80)}")`
-      : 'Brand + Product Type + Key Specs + Pack Size',
+      ? `Brand + Product Type + Key Spec (≤75 chars; pattern from leaders e.g. "${titles[0].slice(0, 75)}")`
+      : 'Brand + Product Type + Key Spec (≤75 chars)',
     required_tokens: tokens.length ? tokens : ['Brand', 'Product Type', 'Size'],
-    mobile_first_75_chars: mobile.length ? mobile : ['Brand Product Type Key Spec']
+    mobile_first_75_chars: mobile.length ? mobile : ['Brand Product Type Key Spec'],
+    title_limit_chars: 75,
+    leaders_within_75_rate: Math.round(compliantRate * 100) / 100,
+    item_highlights: {
+      template: highlightSeeds[0]
+        ? `Key benefit + material/spec + pack detail (≤125 chars; e.g. "${highlightSeeds[0]}")`
+        : 'Key benefit + material/spec + pack detail (≤125 chars)',
+      limit_chars: 125,
+      examples: highlightSeeds
+    }
   };
 }
 
@@ -236,6 +255,22 @@ function normalizeStandardsLlmPart(raw, competitors) {
     part.title.mobile_first_75_chars = titleFallback.mobile_first_75_chars;
   }
 
+  if (typeof part.item_highlights === 'string') {
+    part.item_highlights = { template: part.item_highlights, examples: [] };
+  } else if (!part.item_highlights || typeof part.item_highlights !== 'object') {
+    part.item_highlights = {};
+  } else {
+    part.item_highlights = { ...part.item_highlights };
+  }
+  part.item_highlights.template =
+    nonEmptyString(part.item_highlights.template)
+    || titleFallback.item_highlights.template;
+  part.item_highlights.examples = asStringArray(part.item_highlights.examples);
+  if (!part.item_highlights.examples.length) {
+    part.item_highlights.examples = titleFallback.item_highlights.examples;
+  }
+  part.item_highlights.limit_chars = 125;
+
   if (!part.keyword_map || typeof part.keyword_map !== 'object') {
     part.keyword_map = deriveKeywordFallback(competitors);
   } else {
@@ -279,7 +314,7 @@ ${compactJson(titles)}
 Leader listings (title, bullets, A+, catalog specs only):
 ${compactJson(listings)}
 
-Return a complete title object with non-empty template, required_tokens, and mobile_first_75_chars.`;
+Return Amazon 2026 listing standards derived from these leaders: mobile-first titles (75-character limit) and searchable item highlights (125-character limit).`;
 
   let raw;
   try {
@@ -319,12 +354,21 @@ async function buildCategoryStandard({ llm, config, competitors, competitorMetri
     throw new Error('Missing required number: title median length');
   }
 
+  const titleFallbackMeta = deriveTitleFallback(competitors);
+
   return {
     title: {
       template: llmPart.title.template,
       required_tokens: llmPart.title.required_tokens,
       median_length: titleMedian,
+      limit_chars: 75,
+      leaders_within_75_rate: titleFallbackMeta.leaders_within_75_rate,
       mobile_first_75_chars: llmPart.title.mobile_first_75_chars
+    },
+    item_highlights: {
+      template: llmPart.item_highlights.template,
+      limit_chars: 125,
+      examples: llmPart.item_highlights.examples || []
     },
     keyword_map: llmPart.keyword_map,
     bullet_topics: llmPart.bullet_topics,

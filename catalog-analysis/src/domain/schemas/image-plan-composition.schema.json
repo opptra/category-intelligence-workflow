@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["gallery", "aplus"],
+  "properties": {
+    "gallery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["recommended_build", "build_rationale", "slots"],
+      "properties": {
+        "recommended_build": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many core slots to actually build for this surface"
+        },
+        "build_rationale": {
+          "type": "string",
+          "description": "Short justification from the observed role distribution"
+        },
+        "slots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["role", "priority", "order"],
+            "properties": {
+              "role": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Must match a roles[].canonical value from this surface's evidence"
+              },
+              "kind": { "type": "string" },
+              "priority": { "type": "string", "enum": ["core", "extended"] },
+              "order": { "type": "integer", "minimum": 1 }
+            }
+          }
+        }
+      }
+    },
+    "aplus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["recommended_build", "build_rationale", "slots"],
+      "properties": {
+        "recommended_build": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many core slots to actually build for this surface"
+        },
+        "build_rationale": {
+          "type": "string",
+          "description": "Short justification from the observed role distribution"
+        },
+        "slots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["role", "priority", "order"],
+            "properties": {
+              "role": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Must match a roles[].canonical value from this surface's evidence"
+              },
+              "kind": { "type": "string" },
+              "priority": { "type": "string", "enum": ["core", "extended"] },
+              "order": { "type": "integer", "minimum": 1 }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "description": "Legacy single-call image-plan schema. Composition now uses image-plan-composition + image-plan-brief.",
+  "required": ["gallery", "aplus"],
+  "properties": {
+    "gallery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slots"],
+      "properties": {
+        "slots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "role", "pattern", "content"],
+            "properties": {
+              "kind": { "type": "string", "minLength": 1 },
+              "role": { "type": "string", "minLength": 1 },
+              "pattern": { "type": "string", "minLength": 1 },
+              "content": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    "aplus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slots"],
+      "properties": {
+        "slots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "role", "pattern", "content"],
+            "properties": {
+              "kind": { "type": "string", "minLength": 1 },
+              "role": { "type": "string", "minLength": 1 },
+              "pattern": { "type": "string", "minLength": 1 },
+              "content": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    }
+  }
+}

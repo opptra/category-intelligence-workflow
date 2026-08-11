@@ -51,7 +51,10 @@ function groupReviewsByRating(reviews, { maxPerRating = 25, textMax = 280 } = {}
 }
 
 function formatLeaderTitles(competitors) {
-  return competitors.map((p) => (p.title || '').trim()).filter(Boolean);
+  return competitors
+    .map((p) => (p.title || '').trim())
+    .filter(Boolean)
+    .slice(0, 12);
 }
 
 function formatListingCopy(products, {
@@ -59,16 +62,18 @@ function formatListingCopy(products, {
   bulletMax = 240,
   aplusMax = 6,
   aplusTextMax = 120,
-  maxSpecKeys = 10
+  maxSpecKeys = 10,
+  maxListings = 12
 } = {}) {
-  return products.map((p) => {
+  return products.slice(0, maxListings).map((p) => {
     const specs = pickCatalogSpecs(p.product_details);
     const trimmedSpecs = {};
     for (const [key, value] of Object.entries(specs).slice(0, maxSpecKeys)) {
       trimmedSpecs[key] = value;
     }
     return {
-      title: (p.title || '').trim(),
+      title: (p.title || '').trim().slice(0, 180),
+      item_highlights: (p.item_highlights || []).slice(0, 6).map((t) => String(t).slice(0, 125)),
       bullets: (p.feature_bullets || []).slice(0, maxBullets).map((b) => b.slice(0, bulletMax)),
       aplus: (p.aplus_text_blocks || []).slice(0, aplusMax).map((t) => t.slice(0, aplusTextMax)),
       specs: trimmedSpecs
@@ -109,10 +114,15 @@ function formatCorpusVoice(corpus) {
   if (!corpus) {
     return { signals: [], themes: { praise: [], complaints: [], objections: [] }, sampled_count: 0 };
   }
+  const themes = corpus.themes || { praise: [], complaints: [], objections: [] };
   return {
     // Cap for synthesis prompt size — full mines stay in stage output only
     signals: (corpus.signals || []).slice(0, 25),
-    themes: corpus.themes || { praise: [], complaints: [], objections: [] },
+    themes: {
+      praise: (themes.praise || []).slice(0, 8),
+      complaints: (themes.complaints || []).slice(0, 8),
+      objections: (themes.objections || []).slice(0, 8)
+    },
     sampled_count: corpus.sampled_count || 0
   };
 }
@@ -151,7 +161,7 @@ function formatSpecPatterns(categoryStandard) {
   };
 }
 
-function trimTrackSummary(summary, { maxRoles = 12, maxNotes = 10 } = {}) {
+function trimTrackSummary(summary, { maxRoles = 12, maxNotes = 10, maxSignals = 8 } = {}) {
   if (!summary) {
     return null;
   }
@@ -159,8 +169,18 @@ function trimTrackSummary(summary, { maxRoles = 12, maxNotes = 10 } = {}) {
     track: summary.track,
     n_analyzed: summary.n_analyzed,
     median_image_count: summary.median_image_count ?? null,
-    roles: (summary.roles || []).slice(0, maxRoles),
-    signals: summary.signals || [],
+    image_count: summary.image_count || null,
+    roles: (summary.roles || []).slice(0, maxRoles).map((r) => ({
+      role: r.role,
+      kind: r.kind,
+      count: r.count,
+      prevalence: r.prevalence,
+      typical_per_listing: r.typical_per_listing,
+      typical_position: r.typical_position,
+      content_tags: (r.content_tags || []).slice(0, 8),
+      board_facts: (r.board_facts || []).slice(0, 8)
+    })),
+    signals: (summary.signals || []).slice(0, maxSignals),
     notes: (summary.notes || []).slice(0, maxNotes)
   };
 }
@@ -208,21 +228,32 @@ function formatVisionSummary(visualStandard) {
       median_image_count: oursVs.median_image_count ?? null,
       role_rates: (oursVs.role_rates || []).slice(0, 12),
       missing_vs_leader_required: (oursVs.missing_vs_leader_required || []).slice(0, 10),
-      signals: oursVs.signals || []
+      signals: (oursVs.signals || []).slice(0, 8)
     }
   };
 }
 
 function formatCatalogGapsForResearch(catalogGaps) {
   if (!catalogGaps) return null;
+  const slimNorms = (norms) => {
+    if (!norms) return null;
+    return {
+      title_length: norms.title_length || null,
+      bullet_count: norms.bullet_count || null,
+      image_count: norms.image_count || null,
+      aplus_presence_rate: norms.aplus_presence_rate ?? null,
+      rating: norms.rating || null,
+      review_count: norms.review_count || null
+    };
+  };
   return {
     summary: catalogGaps.summary,
     metric_deltas: (catalogGaps.metric_deltas || []).slice(0, 12),
     missing_visual_roles: (catalogGaps.missing_visual_roles || []).slice(0, 10),
     missing_spec_keys: (catalogGaps.missing_spec_keys || []).slice(0, 12),
     missing_lexicon_terms: (catalogGaps.missing_lexicon_terms || []).slice(0, 20),
-    our_norms: catalogGaps.our_norms,
-    leader_norms: catalogGaps.leader_norms
+    our_norms: slimNorms(catalogGaps.our_norms),
+    leader_norms: slimNorms(catalogGaps.leader_norms)
   };
 }
 
@@ -247,7 +278,11 @@ function buildSynthesisResearch({
     copy: {
       title_pattern: categoryStandard.title?.template,
       title_tokens: categoryStandard.title?.required_tokens,
-      mobile_first: categoryStandard.title?.mobile_first_75_chars,
+      title_limit_chars: categoryStandard.title?.limit_chars || 75,
+      mobile_first: (categoryStandard.title?.mobile_first_75_chars || []).slice(0, 5),
+      item_highlights_template: categoryStandard.item_highlights?.template,
+      item_highlights_limit_chars: categoryStandard.item_highlights?.limit_chars || 125,
+      item_highlights_examples: (categoryStandard.item_highlights?.examples || []).slice(0, 5),
       bullet_topics: categoryStandard.bullet_topics,
       bullet_pattern: categoryStandard.bullet_framing_pattern,
       keywords: formatKeywordMap(categoryStandard.keyword_map)

@@ -6,6 +6,7 @@
   "properties": {
     "topics": {
       "type": "array",
+      "minItems": 1,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -15,6 +16,7 @@
             "type": "string",
             "enum": [
               "title",
+              "item_highlights",
               "bullets",
               "keywords",
               "gallery_images",
@@ -25,15 +27,25 @@
               "consistency_and_hygiene"
             ]
           },
-          "observations": { "type": "string" },
+          "observations": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2500,
+            "description": "Research findings for this topic in prose"
+          },
           "actions": {
             "type": "array",
-            "items": { "type": "string" },
-            "minItems": 1
+            "minItems": 1,
+            "maxItems": 8,
+            "description": "Category-wide playbook steps; may mention aggregated catalog gaps, never individual SKUs/ASINs",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 400
+            }
           }
         }
-      },
-      "minItems": 1
+      }
     }
   }
 }
