@@ -143,26 +143,163 @@ function metaCategoryFallback(competitors) {
     || 'unknown';
 }
 
-async function buildLlmStandard({ llm, config, competitors, category }) {
+function nonEmptyString(value) {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function asStringArray(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((item) => String(item || '').trim()).filter(Boolean);
+}
+
+function deriveTitleFallback(competitors) {
+  const titles = formatLeaderTitles(competitors);
+  const tokens = [];
+  for (const title of titles.slice(0, 5)) {
+    for (const part of title.split(/[|\-–,]/).map((p) => p.trim()).filter((p) => p.length > 2)) {
+      if (!tokens.includes(part) && tokens.length < 8) {
+        tokens.push(part);
+      }
+    }
+  }
+
+  const mobile = titles
+    .map((title) => title.slice(0, 75).trim())
+    .filter(Boolean)
+    .slice(0, 5);
+
+  return {
+    template: titles[0]
+      ? `Brand + Product Type + Key Specs + Pack Size (pattern from leaders e.g. "${titles[0].slice(0, 80)}")`
+      : 'Brand + Product Type + Key Specs + Pack Size',
+    required_tokens: tokens.length ? tokens : ['Brand', 'Product Type', 'Size'],
+    mobile_first_75_chars: mobile.length ? mobile : ['Brand Product Type Key Spec']
+  };
+}
+
+function deriveKeywordFallback(competitors) {
+  const titles = formatLeaderTitles(competitors);
+  const head = [];
+  for (const title of titles) {
+    const words = title.split(/\s+/).filter((w) => w.length > 3).slice(0, 4);
+    for (const word of words) {
+      const cleaned = word.replace(/[^a-zA-Z0-9]/g, '');
+      if (cleaned && !head.includes(cleaned) && head.length < 10) {
+        head.push(cleaned);
+      }
+    }
+  }
+  return {
+    head: head.length ? head : ['duvet', 'cover', 'set'],
+    long_tail: titles.slice(0, 5).map((t) => t.slice(0, 60)),
+    vernacular: [],
+    occasion: []
+  };
+}
+
+/**
+ * Coerce common LLM shape mistakes / empty required fields so a flaky
+ * tool response does not fail the whole pipeline.
+ */
+function normalizeStandardsLlmPart(raw, competitors) {
+  const part = raw && typeof raw === 'object' ? { ...raw } : {};
+  const titleFallback = deriveTitleFallback(competitors);
+
+  if (typeof part.title === 'string') {
+    part.title = {
+      template: part.title,
+      required_tokens: [],
+      mobile_first_75_chars: []
+    };
+  } else if (!part.title || typeof part.title !== 'object') {
+    part.title = {};
+  } else {
+    part.title = { ...part.title };
+  }
+
+  part.title.template =
+    nonEmptyString(part.title.template)
+    || nonEmptyString(part.title.pattern)
+    || nonEmptyString(part.title.format)
+    || nonEmptyString(part.title.structure)
+    || titleFallback.template;
+
+  part.title.required_tokens = asStringArray(part.title.required_tokens);
+  if (!part.title.required_tokens.length) {
+    part.title.required_tokens = titleFallback.required_tokens;
+  }
+
+  part.title.mobile_first_75_chars = asStringArray(part.title.mobile_first_75_chars);
+  if (!part.title.mobile_first_75_chars.length) {
+    part.title.mobile_first_75_chars = titleFallback.mobile_first_75_chars;
+  }
+
+  if (!part.keyword_map || typeof part.keyword_map !== 'object') {
+    part.keyword_map = deriveKeywordFallback(competitors);
+  } else {
+    part.keyword_map = { ...part.keyword_map };
+    for (const key of ['head', 'long_tail', 'vernacular', 'occasion']) {
+      part.keyword_map[key] = asStringArray(part.keyword_map[key]);
+    }
+    if (!part.keyword_map.head.length && !part.keyword_map.long_tail.length) {
+      const fallback = deriveKeywordFallback(competitors);
+      part.keyword_map.head = fallback.head;
+      part.keyword_map.long_tail = fallback.long_tail;
+    }
+  }
+
+  part.bullet_topics = asStringArray(part.bullet_topics);
+  if (!part.bullet_topics.length) {
+    part.bullet_topics = [
+      'Material & fabric feel',
+      'Fit & size coverage',
+      'Care & durability',
+      'Design / print',
+      'Pack contents'
+    ];
+  }
+
+  part.bullet_framing_pattern =
+    nonEmptyString(part.bullet_framing_pattern)
+    || 'Benefit-first: lead with customer outcome, then proof (material/spec), then use case';
+
+  return part;
+}
+
+async function buildLlmStandard({ llm, competitors, category }) {
   const titles = formatLeaderTitles(competitors);
   const listings = formatListingCopy(competitors);
-
-  return llm.completeTool({
-    system: 'You analyze Amazon category leader listings and extract reusable catalog standards.',
-    tool: STANDARDS_LLM_TOOL,
-    user: `Category: ${category}
+  const user = `Category: ${category}
 
 Leader titles:
 ${compactJson(titles)}
 
 Leader listings (title, bullets, A+, catalog specs only):
-${compactJson(listings)}`
-  });
+${compactJson(listings)}
+
+Return a complete title object with non-empty template, required_tokens, and mobile_first_75_chars.`;
+
+  let raw;
+  try {
+    raw = await llm.completeTool({
+      system:
+        'You analyze Amazon category leader listings and extract reusable catalog standards. Always fill every required string field with concrete non-empty values derived from the listings.',
+      tool: STANDARDS_LLM_TOOL,
+      user
+    });
+  } catch (err) {
+    console.warn(`[standards] LLM tool call failed (${err.message}); using deterministic fallbacks`);
+    raw = {};
+  }
+
+  return normalizeStandardsLlmPart(raw, competitors);
 }
 
 async function buildCategoryStandard({ llm, config, competitors, competitorMetrics, category }) {
   const deterministic = buildDeterministicStandard(competitors, competitorMetrics);
-  const llmPart = await buildLlmStandard({ llm, config, competitors, category });
+  const llmPart = await buildLlmStandard({ llm, competitors, category });
 
   requireFields(llmPart, {
     values: ['title', 'keyword_map'],
@@ -173,15 +310,6 @@ async function buildCategoryStandard({ llm, config, competitors, competitorMetri
     strings: ['template'],
     arrays: ['required_tokens', 'mobile_first_75_chars']
   }, 'standards LLM response title');
-  // vernacular / occasion are often empty outside localized categories — allow empty
-  if (!llmPart.keyword_map || typeof llmPart.keyword_map !== 'object') {
-    throw new Error('Missing required value: standards LLM response.keyword_map');
-  }
-  for (const key of ['head', 'long_tail', 'vernacular', 'occasion']) {
-    if (!Array.isArray(llmPart.keyword_map[key])) {
-      llmPart.keyword_map[key] = [];
-    }
-  }
   if (!llmPart.keyword_map.head.length && !llmPart.keyword_map.long_tail.length) {
     throw new Error('standards LLM response.keyword_map needs at least one head or long_tail term');
   }

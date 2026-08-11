@@ -1,19 +1,22 @@
 const { ProductDetailsScraper } = require('../scrapers/product-details');
+const { CONCURRENCY } = require('./constants');
 
 async function scrapeProductDetailsAndReviews(items, options) {
+  const concurrency = options.concurrency ?? CONCURRENCY;
   const scraper = new ProductDetailsScraper({
     cookiesPath: options.cookiesPath,
     headless: options.headless,
     includeReviews: options.includeReviews !== false,
     maxPerStar: options.reviewsPerStar,
-    maxTotalReviews: options.maxReviews
+    maxTotalReviews: options.maxReviews,
+    concurrency
   });
 
   try {
     console.log('\n' + '='.repeat(60));
     console.log(options.stepLabel || 'PRODUCT DETAILS + REVIEWS');
     console.log('='.repeat(60));
-    console.log(`Scraping ${items.length} products`);
+    console.log(`Scraping ${items.length} products (concurrency ${concurrency})`);
     if (options.includeReviews !== false) {
       console.log(`Reviews: ${options.reviewsPerStar}/star, ${options.maxReviews} total max`);
     }
@@ -21,7 +24,8 @@ async function scrapeProductDetailsAndReviews(items, options) {
 
     const result = await scraper.scrape(items, {
       limit: items.length,
-      includeReviews: options.includeReviews !== false
+      includeReviews: options.includeReviews !== false,
+      concurrency
     });
 
     const output = {

@@ -1,5 +1,4 @@
 const fs = require('fs');
-const path = require('path');
 const sharp = require('sharp');
 const { cachePath, hashInput } = require('../../services/cache');
 const {
@@ -8,6 +7,12 @@ const {
   requireNonEmptyArrayKeys
 } = require('../../utils/assert');
 const { toolDefinition } = require('../../utils/schema-tools');
+const {
+  buildTrackSummary,
+  requiredRolesFromSummary,
+  missingRolesVsLeaders
+} = require('./visual-summary');
+
 const VISION_GALLERY_TOOL = toolDefinition(
   'vision-gallery',
   'Classify numbered Amazon listing image montage cells and summarize visual standards'
@@ -16,6 +21,11 @@ const VISION_GALLERY_TOOL = toolDefinition(
 const PADDING = 8;
 const LABEL_HEIGHT = 24;
 const ROW_GAP = 12;
+
+/** Map montage galleryType to durable track id used end-to-end. */
+function trackFromGalleryType(galleryType) {
+  return galleryType === 'aplus' ? 'aplus' : 'pdp';
+}
 
 async function downloadImage(url, cacheDir) {
   const key = hashInput(url);
@@ -173,15 +183,54 @@ async function mapWithConcurrency(items, limit, worker) {
   return results;
 }
 
+function buildGalleryVisionPrompt({ imageCount }) {
+  return {
+    system:
+      'You classify Amazon PDP product-gallery images from a numbered montage. '
+      + '"Lifestyle" means a styled room/setting — not a person. '
+      + 'Tag a human in content_tags only if a person (or body part such as a hand/face) is visibly present.',
+    user: `This is a numbered PDP product-gallery montage with ${imageCount} images.
+Product gallery uses a square grid; each image keeps its original aspect ratio within its cell.
+
+For each numbered cell:
+- role: free-text functional role (e.g. styled-room hero, fabric close-up, size infographic)
+- content_tags: open-vocabulary concrete elements you see (bed, room, fabric, text-overlay, human, hand, tree, etc.)
+
+Also return present_roles, quality_notes, and hero_conventions (PDP only).`
+  };
+}
+
+function buildAplusVisionPrompt({ imageCount }) {
+  return {
+    system:
+      'You classify Amazon A+ Content modules from a numbered montage. '
+      + '"Lifestyle" means a styled setting — not automatically a person. '
+      + 'Tag a human in content_tags only if a person (or body part such as a hand/face) is visibly present.',
+    user: `This is a numbered A+ Content montage with ${imageCount} images.
+Landscape A+ banners are stacked vertically; each keeps its original aspect ratio.
+
+For each numbered cell:
+- role: free-text functional role (e.g. brand story banner, feature icons, lifestyle room, fabric detail, size chart)
+- content_tags: open-vocabulary concrete elements you see (human, hand, family, icons, text-overlay, bed, fabric, etc.)
+
+Also return present_roles and quality_notes. hero_conventions is not required for A+.`
+  };
+}
+
+function normalizeContentTags(tags) {
+  if (!Array.isArray(tags)) return [];
+  return [...new Set(tags.map((t) => String(t || '').trim()).filter(Boolean))];
+}
+
 function validateVisionAnalysis(analysis, { asin, galleryType }) {
   const labelPrefix = `vision for ${asin} (${galleryType})`;
   requireNonEmptyArrayKeys(analysis, ['cells', 'present_roles'], labelPrefix);
 
   for (const cell of analysis.cells) {
     requireNonEmptyString(cell.role, `vision cell role for ${asin} (${galleryType}) cell ${cell.cell}`);
+    cell.content_tags = normalizeContentTags(cell.content_tags);
   }
 
-  // Optional / often-empty fields — normalize instead of failing the whole run
   if (!Array.isArray(analysis.quality_notes)) {
     analysis.quality_notes = [];
   }
@@ -196,18 +245,14 @@ function validateVisionAnalysis(analysis, { asin, galleryType }) {
 
 async function analyzeGalleryMontage({ llm, config, montageBuffer, imageCount, galleryType, asin }) {
   const base64 = montageBuffer.toString('base64');
-  const layoutHint = galleryType === 'aplus'
-    ? 'Landscape A+ banners are stacked vertically; each keeps its original aspect ratio.'
-    : 'Product gallery uses a square grid; each image keeps its original aspect ratio within its cell.';
+  const prompt = galleryType === 'aplus'
+    ? buildAplusVisionPrompt({ imageCount })
+    : buildGalleryVisionPrompt({ imageCount });
 
   const analysis = await llm.completeVisionTool({
-    system: 'You classify Amazon listing images from a numbered montage.',
+    system: prompt.system,
     tool: VISION_GALLERY_TOOL,
-    user: `This is a numbered ${galleryType} montage with ${imageCount} images.
-${layoutHint}
-
-Classify each numbered item and summarize category visual standards.
-hero_conventions applies to product galleries only.`,
+    user: prompt.user,
     imageBase64: base64,
     mediaType: 'image/jpeg',
     maxTokens: config.visionMaxTokens
@@ -225,6 +270,7 @@ async function analyzeProductGalleries({
   log
 }) {
   const maxCells = maxCellsForType(config, galleryType);
+  const track = trackFromGalleryType(galleryType);
 
   const tasks = [];
   for (const product of products) {
@@ -267,138 +313,76 @@ async function analyzeProductGalleries({
 
     return {
       asin: product.asin,
+      track,
       image_count: urls.length,
       ...analysis
     };
   });
 }
 
-function collectRolePresenceCounts(galleryResults) {
-  const roleCounts = new Map();
-  for (const result of galleryResults) {
-    const roles = new Set([
-      ...(result.present_roles || []),
-      ...(result.cells || []).map((cell) => cell.role).filter(Boolean)
-    ]);
-    for (const role of roles) {
-      if (role === 'other') continue;
-      roleCounts.set(role, (roleCounts.get(role) || 0) + 1);
-    }
-  }
-  return roleCounts;
-}
-
 /**
- * Aggregate our galleries vs leader-required roles (catalog-level, no ASINs).
+ * Aggregate our PDP galleries vs leader-required roles (catalog-level, no ASINs).
  */
 function aggregateOursVsLeaders(ourGalleryResults, requiredRoles) {
-  const n = ourGalleryResults.length;
+  const ourSummary = buildTrackSummary(ourGalleryResults, { track: 'pdp' });
+  const n = ourSummary.n_analyzed;
+
   if (!n) {
     return {
       galleries_analyzed: 0,
       role_rates: [],
       missing_vs_leader_required: [...(requiredRoles || [])],
-      median_image_count: null
+      median_image_count: null,
+      signals: ourSummary.signals
     };
   }
 
-  const roleCounts = collectRolePresenceCounts(ourGalleryResults);
-  const role_rates = [...roleCounts.entries()]
-    .map(([role, count]) => ({
-      role,
-      presence_rate: Math.round((count / n) * 100) / 100
-    }))
-    .sort((a, b) => b.presence_rate - a.presence_rate);
-
-  const missing_vs_leader_required = (requiredRoles || []).filter((role) => {
-    const count = roleCounts.get(role) || 0;
-    return count / n < 0.5;
-  });
-
-  const imageCounts = ourGalleryResults
-    .map((r) => r.image_count)
-    .filter(Number.isFinite)
-    .sort((a, b) => a - b);
-  const mid = Math.floor(imageCounts.length / 2);
-  const median_image_count = imageCounts.length
-    ? (imageCounts.length % 2 ? imageCounts[mid] : (imageCounts[mid - 1] + imageCounts[mid]) / 2)
-    : null;
-
   return {
     galleries_analyzed: n,
-    role_rates,
-    missing_vs_leader_required,
-    median_image_count
+    role_rates: ourSummary.roles.map((r) => ({
+      role: r.role,
+      presence_rate: r.prevalence
+    })),
+    missing_vs_leader_required: missingRolesVsLeaders(ourSummary, requiredRoles),
+    median_image_count: ourSummary.median_image_count,
+    signals: ourSummary.signals
   };
 }
 
+/**
+ * Keep PDP and A+ summaries separate with frequency preserved.
+ * Legacy gallery_standard / aplus_topics_from_vision fields remain for catalog-gaps / standards merge.
+ */
 function aggregateVisualStandard(galleryResults, aplusResults) {
   requireNonEmptyArray(galleryResults, 'competitor product gallery vision results');
 
-  const roleCounts = new Map();
-  const heroConventions = new Set();
-  const qualityNotes = new Set();
-  const aplusTopics = new Set();
+  const pdpSummary = buildTrackSummary(galleryResults, { track: 'pdp' });
+  const aplusSummary = buildTrackSummary(aplusResults, { track: 'aplus' });
+  const requiredRoles = requiredRolesFromSummary(pdpSummary);
 
-  for (const result of galleryResults) {
-    for (const role of result.present_roles || []) {
-      roleCounts.set(role, (roleCounts.get(role) || 0) + 1);
-    }
-    for (const cell of result.cells || []) {
-      if (cell.role) {
-        roleCounts.set(cell.role, (roleCounts.get(cell.role) || 0) + 1);
-      }
-    }
-    for (const note of result.hero_conventions || []) {
-      if (note) heroConventions.add(note);
-    }
-    for (const note of result.quality_notes || []) {
-      if (note) qualityNotes.add(note);
-    }
-  }
-
-  const competitorCount = galleryResults.length;
-  let requiredRoles = [...roleCounts.entries()]
-    .filter(([, count]) => count / competitorCount >= 0.5)
-    .map(([role]) => role)
-    .filter((role) => role !== 'other');
-
-  // Fallback if no role reaches 50% presence (diverse galleries / soft model labels)
-  if (!requiredRoles.length) {
-    requiredRoles = [...roleCounts.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .map(([role]) => role)
-      .filter((role) => role !== 'other')
-      .slice(0, 6);
-  }
-
-  if (!requiredRoles.length) {
-    requiredRoles = ['hero'];
-  }
-
-  const heroList = [...heroConventions];
-  if (!heroList.length) {
-    heroList.push('clean product-forward hero on simple background');
-  }
-
-  for (const result of aplusResults) {
-    for (const note of result.quality_notes || []) {
-      if (note) aplusTopics.add(note);
-    }
-    for (const cell of result.cells || []) {
-      if (cell.role && cell.role !== 'other') {
-        aplusTopics.add(cell.role);
-      }
-    }
+  const heroConventions = (pdpSummary.notes || [])
+    .map((n) => n.note)
+    .filter(Boolean)
+    .slice(0, 12);
+  if (!heroConventions.length) {
+    heroConventions.push('clean product-forward hero on simple background');
   }
 
   return {
+    pdp_summary: pdpSummary,
+    aplus_summary: aplusSummary,
     gallery_standard: {
       required_roles: requiredRoles,
-      hero_conventions: heroList,
-      quality_notes: [...qualityNotes]
+      hero_conventions: heroConventions,
+      quality_notes: (pdpSummary.notes || []).map((n) => n.note).slice(0, 20)
     },
-    aplus_topics_from_vision: [...aplusTopics],
+    // Keep count-bearing objects for consumers that want frequency; strings alone lose info.
+    aplus_topics_from_vision: (aplusSummary.roles || []).map((r) => r.role),
+    aplus_topics_with_counts: (aplusSummary.roles || []).map((r) => ({
+      topic: r.role,
+      count: r.count,
+      prevalence: r.prevalence
+    })),
     per_product_gallery: galleryResults,
     per_product_aplus: aplusResults
   };
@@ -410,7 +394,7 @@ async function buildVisualStandard({ llm, config, competitors, ours, log }) {
     config,
     products: competitors,
     galleryType: 'product',
-    label: 'competitor gallery',
+    label: 'competitor PDP gallery',
     log
   });
   const competitorsWithAplus = competitors.filter((p) => (p.aplus_images || []).length > 0);
@@ -430,7 +414,7 @@ async function buildVisualStandard({ llm, config, competitors, ours, log }) {
     config,
     products: ours,
     galleryType: 'product',
-    label: 'our gallery',
+    label: 'our PDP gallery',
     log
   });
 
@@ -443,11 +427,16 @@ async function buildVisualStandard({ llm, config, competitors, ours, log }) {
   return {
     ...aggregated,
     our_gallery_internal: ourGalleryInternal,
+    our_pdp_summary: buildTrackSummary(ourGalleryInternal, { track: 'pdp' }),
     ours_vs_leaders
   };
 }
 
 module.exports = {
   buildVisualStandard,
-  aggregateOursVsLeaders
+  aggregateOursVsLeaders,
+  aggregateVisualStandard,
+  trackFromGalleryType,
+  buildGalleryVisionPrompt,
+  buildAplusVisionPrompt
 };

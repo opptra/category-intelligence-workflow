@@ -26,7 +26,8 @@ async function runCatalogPipeline({
   headless,
   reviewsPerStar,
   maxReviews,
-  includeReviews
+  includeReviews,
+  concurrency
 } = {}) {
   if (!categoryUrl || typeof categoryUrl !== 'string' || !categoryUrl.trim()) {
     throw new Error('categoryUrl is required');
@@ -49,7 +50,8 @@ async function runCatalogPipeline({
     headless,
     reviewsPerStar,
     maxReviews,
-    includeReviews
+    includeReviews,
+    concurrency
   });
 
   console.log('\n' + '='.repeat(60));
@@ -59,13 +61,16 @@ async function runCatalogPipeline({
   const { report } = await runAnalysis({ input: scrapeResult });
 
   const slug = slugifyCategory(report.meta.category);
+  fs.mkdirSync(outputDir, { recursive: true });
   const outputPath = path.join(outputDir, `${slug}-analysis.json`);
-  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+  const scrapePath = path.join(outputDir, `${slug}-scrape.json`);
   fs.writeFileSync(outputPath, JSON.stringify(report, null, 2), 'utf-8');
+  fs.writeFileSync(scrapePath, JSON.stringify(scrapeResult, null, 2), 'utf-8');
 
   console.log(`\nWrote analysis report to ${outputPath}`);
+  console.log(`Wrote scrape data to ${scrapePath}`);
 
-  return { report, outputPath, scrapeResult };
+  return { report, outputPath, scrapePath, scrapeResult };
 }
 
 module.exports = { runCatalogPipeline };

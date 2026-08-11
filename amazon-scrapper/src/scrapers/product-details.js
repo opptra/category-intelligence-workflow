@@ -15,6 +15,7 @@ class ProductDetailsScraper {
   constructor(options = {}) {
     this.domain = options.domain || 'www.amazon.in';
     this.delayMs = options.delayMs || 2000;
+    this.concurrency = options.concurrency ?? CONCURRENCY;
     this.session = new BrowserSession({
       cookiesPath: options.cookiesPath,
       delayMs: options.delayMs,
@@ -25,7 +26,8 @@ class ProductDetailsScraper {
       delayMs: options.delayMs || 2000,
       maxPerStar: options.maxPerStar || 50,
       maxTotalReviews: options.maxTotalReviews || 250,
-      sortBy: options.reviewSortBy || 'recent'
+      sortBy: options.reviewSortBy || 'recent',
+      concurrency: this.concurrency
     });
   }
 
@@ -460,6 +462,8 @@ class ProductDetailsScraper {
     const limit = options.limit ?? inputItems.length;
     const targets = inputItems.slice(0, limit).map((item) => this.normalizeItemInput(item));
     const products = new Array(targets.length);
+    const concurrency = options.concurrency ?? this.concurrency;
+    const includeReviews = options.includeReviews ?? this.includeReviews;
 
     const authPage = await this.session.newPage();
     try {
@@ -470,9 +474,12 @@ class ProductDetailsScraper {
       await authPage.close().catch(() => {});
     }
 
-    console.log(`Scraping ${targets.length} products (${CONCURRENCY} at a time)...\n`);
+    console.log(
+      `Scraping ${targets.length} products (${concurrency} at a time` +
+        `${includeReviews ? ', details then reviews per product' : ''})...\n`
+    );
 
-    await runWithConcurrency(targets, CONCURRENCY, async (item, index) => {
+    await runWithConcurrency(targets, concurrency, async (item, index) => {
       const page = await this.session.newPage();
 
       try {
@@ -492,15 +499,26 @@ class ProductDetailsScraper {
       } finally {
         await page.close().catch(() => {});
       }
-    });
 
-    const includeReviews = options.includeReviews ?? this.includeReviews;
-    if (includeReviews && products.some((product) => product && !product.error)) {
-      console.log('\n' + '='.repeat(60));
-      console.log('REVIEWS');
-      console.log('='.repeat(60));
-      await this.reviewsScraper.scrapeMany(this.session, products);
-    }
+      const product = products[index];
+      if (includeReviews && product && !product.error) {
+        try {
+          product.reviews = await this.reviewsScraper.scrapeForProduct(
+            this.session,
+            product.asin,
+            product.domain || this.domain
+          );
+          product.scraped_at = new Date().toISOString();
+        } catch (error) {
+          console.error(`  ✗ ${product.asin} reviews: ${error.message}`);
+          product.reviews = {
+            error: error.message,
+            total_fetched: 0,
+            items: []
+          };
+        }
+      }
+    });
 
     return {
       domain: targets[0]?.domain || this.domain,

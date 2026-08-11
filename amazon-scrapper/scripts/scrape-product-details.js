@@ -8,6 +8,7 @@ const { ProductDetailsScraper } = require('../src/scrapers/product-details');
 const { BrowserSession } = require('../src/lib/browser-session');
 const { ReviewsScraper } = require('../src/scrapers/reviews');
 const { resolveCookiesPath } = require('../src/lib/resolve-cookies');
+const { CONCURRENCY } = require('../src/lib/constants');
 
 function parseArgs(argv) {
   const options = {
@@ -19,7 +20,9 @@ function parseArgs(argv) {
     includeReviews: true,
     reviewsPerStar: 50,
     maxReviews: 250,
-    reviewsOnly: false
+    concurrency: null,
+    reviewsOnly: false,
+    help: false
   };
 
   for (let i = 2; i < argv.length; i++) {
@@ -37,6 +40,8 @@ function parseArgs(argv) {
       options.reviewsPerStar = parseInt(argv[++i], 10);
     } else if (arg === '--max-reviews' && argv[i + 1]) {
       options.maxReviews = parseInt(argv[++i], 10);
+    } else if (arg === '--concurrency' && argv[i + 1]) {
+      options.concurrency = parseInt(argv[++i], 10);
     } else if (arg === '--no-reviews') {
       options.includeReviews = false;
     } else if (arg === '--reviews-only') {
@@ -44,10 +49,29 @@ function parseArgs(argv) {
       options.includeReviews = true;
     } else if (arg === '--headed') {
       options.headless = false;
+    } else if (arg === '--help' || arg === '-h') {
+      options.help = true;
     }
   }
 
   return options;
+}
+
+function printHelp() {
+  console.log(`Usage:
+  node scripts/scrape-product-details.js --input <list.json> --output <out.json> [options]
+  node scripts/scrape-product-details.js --reviews-only --output <details.json> [options]
+
+Optional:
+  --concurrency <n>      Parallel products (default: 10; lower if Amazon blocks)
+  --reviews-per-star <n> Reviews per star bucket (default: 50; lower = faster)
+  --max-reviews <n>      Max reviews per product (default: 250; lower = faster)
+  --limit <n>            Cap number of products
+  --cookies <path>       Path to amazon cookies JSON
+  --no-reviews           Skip review scraping
+  --reviews-only         Add reviews to an existing details JSON
+  --headed               Run browser headed
+`);
 }
 
 function loadInputItems(inputPath) {
@@ -72,6 +96,7 @@ function loadInputItems(inputPath) {
 }
 
 async function enrichWithReviews(products, options) {
+  const concurrency = options.concurrency ?? CONCURRENCY;
   const session = new BrowserSession({
     cookiesPath: options.cookiesPath,
     delayMs: 1500,
@@ -79,11 +104,12 @@ async function enrichWithReviews(products, options) {
   });
   const reviewsScraper = new ReviewsScraper({
     maxPerStar: options.reviewsPerStar,
-    maxTotalReviews: options.maxReviews
+    maxTotalReviews: options.maxReviews,
+    concurrency
   });
 
   try {
-    await reviewsScraper.scrapeMany(session, products);
+    await reviewsScraper.scrapeMany(session, products, { concurrency });
   } finally {
     await session.close();
   }
@@ -93,6 +119,10 @@ async function enrichWithReviews(products, options) {
 
 async function main() {
   const options = parseArgs(process.argv);
+  if (options.help) {
+    printHelp();
+    return;
+  }
 
   if (!options.output) {
     throw new Error('--output is required');
@@ -130,19 +160,22 @@ async function main() {
 
   const items = loadInputItems(options.input);
   const limit = options.limit ?? items.length;
+  const concurrency = options.concurrency ?? CONCURRENCY;
 
   const scraper = new ProductDetailsScraper({
     cookiesPath: options.cookiesPath,
     headless: options.headless,
     includeReviews: options.includeReviews,
     maxPerStar: options.reviewsPerStar,
-    maxTotalReviews: options.maxReviews
+    maxTotalReviews: options.maxReviews,
+    concurrency
   });
 
   try {
     console.log(`Scraping product details for ${Math.min(limit, items.length)} items...\n`);
     console.log(`Input: ${options.input}`);
     console.log(`Cookies: ${options.cookiesPath}`);
+    console.log(`Concurrency: ${concurrency}`);
     if (options.includeReviews) {
       console.log(`Reviews: ${options.reviewsPerStar}/star, ${options.maxReviews} total max`);
     }
@@ -150,7 +183,8 @@ async function main() {
 
     const result = await scraper.scrape(items, {
       limit,
-      includeReviews: options.includeReviews
+      includeReviews: options.includeReviews,
+      concurrency
     });
 
     const output = {

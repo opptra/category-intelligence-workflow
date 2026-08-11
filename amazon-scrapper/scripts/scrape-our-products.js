@@ -18,8 +18,10 @@ function parseArgs(argv) {
     headless: 'new',
     reviewsPerStar: 50,
     maxReviews: 250,
+    concurrency: null,
     urls: [],
-    category: null
+    category: null,
+    help: false
   };
 
   for (let i = 2; i < argv.length; i++) {
@@ -41,12 +43,34 @@ function parseArgs(argv) {
       options.reviewsPerStar = parseInt(argv[++i], 10);
     } else if (arg === '--max-reviews' && argv[i + 1]) {
       options.maxReviews = parseInt(argv[++i], 10);
+    } else if (arg === '--concurrency' && argv[i + 1]) {
+      options.concurrency = parseInt(argv[++i], 10);
     } else if (arg === '--headed') {
       options.headless = false;
+    } else if (arg === '--help' || arg === '-h') {
+      options.help = true;
     }
   }
 
   return options;
+}
+
+function printHelp() {
+  console.log(`Usage:
+  node scripts/scrape-our-products.js [--input config.json | --url ... --category <name>] [options]
+
+Optional:
+  --input <path>         Product list JSON (default: config/our-products.json)
+  --url <url>            Product URL (repeatable; requires --category)
+  --category <name>      Category name when using --url
+  --concurrency <n>      Parallel products (default: 10; lower if Amazon blocks)
+  --reviews-per-star <n> Reviews per star bucket (default: 50; lower = faster)
+  --max-reviews <n>      Max reviews per product (default: 250; lower = faster)
+  --cookies <path>       Path to amazon cookies JSON
+  --output <path>        Product details output JSON
+  --list-output <path>   Product list output JSON
+  --headed               Run browser headed
+`);
 }
 
 function loadProductItems(options) {
@@ -68,6 +92,10 @@ function loadProductItems(options) {
 
 async function main() {
   const options = parseArgs(process.argv);
+  if (options.help) {
+    printHelp();
+    return;
+  }
   const startedAt = Date.now();
 
   console.log('Amazon — Our Products Scrape Pipeline\n');
@@ -107,6 +135,7 @@ async function main() {
     headless: options.headless,
     reviewsPerStar: options.reviewsPerStar,
     maxReviews: options.maxReviews,
+    concurrency: options.concurrency,
     source: loaded.source,
     sourceFile: options.urls.length ? null : options.input,
     category: loaded.category,

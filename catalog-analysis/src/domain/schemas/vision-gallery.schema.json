@@ -6,17 +6,26 @@
   "properties": {
     "hero_conventions": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": { "type": "string" },
+      "description": "PDP gallery only: recurring hero framing conventions observed across cells"
     },
     "cells": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["cell", "role"],
+        "required": ["cell", "role", "content_tags"],
         "properties": {
           "cell": { "type": "integer", "minimum": 1 },
-          "role": { "type": "string" }
+          "role": {
+            "type": "string",
+            "description": "Free-text functional role of this image (e.g. styled-room hero, fabric close-up). Lifestyle means a styled setting, not necessarily a person."
+          },
+          "content_tags": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Open-vocabulary concrete elements visible in the cell (e.g. human, hand, bed, room, tree, text-overlay, fabric). Tag a person only if a human is visibly present."
+          }
         }
       },
       "minItems": 1

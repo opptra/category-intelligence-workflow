@@ -19,6 +19,7 @@ const DEFAULT_LIMITS = {
 class ReviewsScraper {
   constructor(options = {}) {
     this.delayMs = options.delayMs || 1500;
+    this.concurrency = options.concurrency ?? CONCURRENCY;
     this.limits = {
       perStar: options.maxPerStar ?? DEFAULT_LIMITS.perStar,
       maxTotal: options.maxTotalReviews ?? DEFAULT_LIMITS.maxTotal,
@@ -333,8 +334,9 @@ class ReviewsScraper {
     }
   }
 
-  async scrapeMany(session, products) {
+  async scrapeMany(session, products, options = {}) {
     const targets = products.filter((product) => product.asin && !product.error);
+    const concurrency = options.concurrency ?? this.concurrency;
 
     const authPage = await session.newPage();
     let cookiesApplied = false;
@@ -351,9 +353,9 @@ class ReviewsScraper {
       console.warn('No cookies loaded — review counts may be limited');
     }
 
-    console.log(`\nFetching reviews for ${targets.length} products (${CONCURRENCY} at a time)...\n`);
+    console.log(`\nFetching reviews for ${targets.length} products (${concurrency} at a time)...\n`);
 
-    await runWithConcurrency(targets, CONCURRENCY, async (product) => {
+    await runWithConcurrency(targets, concurrency, async (product) => {
       const domain = product.domain || 'www.amazon.in';
       product.reviews = await this.scrapeForProduct(session, product.asin, domain);
       product.scraped_at = new Date().toISOString();

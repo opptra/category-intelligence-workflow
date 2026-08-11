@@ -9,16 +9,22 @@
       "additionalProperties": false,
       "required": ["template", "required_tokens", "mobile_first_75_chars"],
       "properties": {
-        "template": { "type": "string" },
+        "template": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Reusable title pattern with slots, e.g. Brand + Product Type + Material + Size + Pack"
+        },
         "required_tokens": {
           "type": "array",
           "items": { "type": "string" },
-          "minItems": 1
+          "minItems": 1,
+          "description": "Tokens that almost always appear in winning titles"
         },
         "mobile_first_75_chars": {
           "type": "array",
           "items": { "type": "string" },
-          "minItems": 1
+          "minItems": 1,
+          "description": "Example mobile-truncated title prefixes (first ~75 chars)"
         }
       }
     },

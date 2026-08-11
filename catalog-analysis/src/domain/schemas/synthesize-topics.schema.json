@@ -33,7 +33,7 @@
           }
         }
       },
-      "minItems": 9
+      "minItems": 1
     }
   }
 }

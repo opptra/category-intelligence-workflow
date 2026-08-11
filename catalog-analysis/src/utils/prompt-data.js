@@ -151,25 +151,64 @@ function formatSpecPatterns(categoryStandard) {
   };
 }
 
-function formatVisionSummary(visualStandard) {
-  const gallery = visualStandard.gallery_standard || {};
-  const oursVs = visualStandard.ours_vs_leaders || {};
+function trimTrackSummary(summary, { maxRoles = 12, maxNotes = 10 } = {}) {
+  if (!summary) {
+    return null;
+  }
   return {
-    gallery: {
-      roles: (gallery.required_roles || []).slice(0, 10),
-      hero: (gallery.hero_conventions || []).slice(0, 6),
-      notes: (gallery.quality_notes || []).slice(0, 8)
-    },
-    aplus_notes: [...new Set(
-      (visualStandard.per_product_aplus || [])
-        .flatMap((p) => p.quality_notes || [])
-    )].slice(0, 12),
-    galleries_analyzed: (visualStandard.per_product_gallery || []).length,
+    track: summary.track,
+    n_analyzed: summary.n_analyzed,
+    median_image_count: summary.median_image_count ?? null,
+    roles: (summary.roles || []).slice(0, maxRoles),
+    signals: summary.signals || [],
+    notes: (summary.notes || []).slice(0, maxNotes)
+  };
+}
+
+/**
+ * PDP gallery and A+ stay sibling objects of identical shape — never flattened together.
+ */
+function formatVisionSummary(visualStandard) {
+  const oursVs = visualStandard.ours_vs_leaders || {};
+  const pdp = visualStandard.pdp_summary
+    || trimTrackSummary({
+      track: 'pdp',
+      n_analyzed: (visualStandard.per_product_gallery || []).length,
+      roles: (visualStandard.gallery_standard?.required_roles || []).map((role) => ({
+        role,
+        count: null,
+        prevalence: null
+      })),
+      signals: [],
+      notes: (visualStandard.gallery_standard?.quality_notes || []).map((note) => ({
+        note,
+        count: null,
+        prevalence: null
+      }))
+    });
+
+  const aplus = visualStandard.aplus_summary
+    || trimTrackSummary({
+      track: 'aplus',
+      n_analyzed: (visualStandard.per_product_aplus || []).length,
+      roles: (visualStandard.aplus_topics_with_counts || []).map((t) => ({
+        role: t.topic,
+        count: t.count,
+        prevalence: t.prevalence
+      })),
+      signals: [],
+      notes: []
+    });
+
+  return {
+    pdp_gallery: trimTrackSummary(pdp),
+    aplus: trimTrackSummary(aplus),
     ours_vs_leaders: {
       galleries_analyzed: oursVs.galleries_analyzed || 0,
       median_image_count: oursVs.median_image_count ?? null,
       role_rates: (oursVs.role_rates || []).slice(0, 12),
-      missing_vs_leader_required: (oursVs.missing_vs_leader_required || []).slice(0, 10)
+      missing_vs_leader_required: (oursVs.missing_vs_leader_required || []).slice(0, 10),
+      signals: oursVs.signals || []
     }
   };
 }
@@ -225,12 +264,63 @@ function buildSynthesisTopicsResearch(research) {
   return rest;
 }
 
+/**
+ * Scope research so a topic prompt only sees its own visual track.
+ * - gallery_images → vision.pdp_gallery only
+ * - aplus → vision.aplus only
+ * - other topics → no vision detail (metrics / catalog_gaps only)
+ */
+function scopeResearchForTopics(research, topicNames) {
+  const names = new Set(topicNames);
+  const base = buildSynthesisTopicsResearch(research);
+  const vision = base.vision || {};
+
+  if (names.has('gallery_images') && !names.has('aplus')) {
+    return {
+      ...base,
+      vision: {
+        pdp_gallery: vision.pdp_gallery || null,
+        ours_vs_leaders: vision.ours_vs_leaders || null
+      }
+    };
+  }
+
+  if (names.has('aplus') && !names.has('gallery_images')) {
+    return {
+      ...base,
+      vision: {
+        aplus: vision.aplus || null
+      }
+    };
+  }
+
+  if (!names.has('gallery_images') && !names.has('aplus')) {
+    const { vision: _drop, ...withoutVision } = base;
+    return {
+      ...withoutVision,
+      vision: {
+        ours_vs_leaders: vision.ours_vs_leaders
+          ? {
+              galleries_analyzed: vision.ours_vs_leaders.galleries_analyzed,
+              median_image_count: vision.ours_vs_leaders.median_image_count,
+              missing_vs_leader_required: vision.ours_vs_leaders.missing_vs_leader_required
+            }
+          : null
+      }
+    };
+  }
+
+  return base;
+}
+
 module.exports = {
   compactJson,
   groupReviewsByRating,
   formatLeaderTitles,
   formatListingCopy,
   formatOurCatalogDigest,
+  formatVisionSummary,
   buildSynthesisResearch,
-  buildSynthesisTopicsResearch
+  buildSynthesisTopicsResearch,
+  scopeResearchForTopics
 };

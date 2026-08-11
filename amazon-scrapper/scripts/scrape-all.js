@@ -19,7 +19,8 @@ function parseArgs(argv) {
     cookiesPath: resolveCookiesPath(),
     headless: 'new',
     reviewsPerStar: 50,
-    maxReviews: 250
+    maxReviews: 250,
+    concurrency: null
   };
 
   for (let i = 2; i < argv.length; i++) {
@@ -39,12 +40,35 @@ function parseArgs(argv) {
       options.reviewsPerStar = parseInt(argv[++i], 10);
     } else if (arg === '--max-reviews' && argv[i + 1]) {
       options.maxReviews = parseInt(argv[++i], 10);
+    } else if (arg === '--concurrency' && argv[i + 1]) {
+      options.concurrency = parseInt(argv[++i], 10);
     } else if (arg === '--headed') {
       options.headless = false;
+    } else if (arg === '--help' || arg === '-h') {
+      options.help = true;
     }
   }
 
   return options;
+}
+
+function printHelp() {
+  console.log(`Usage:
+  node scripts/scrape-all.js --category-url <bestsellers-url> [options]
+
+Required:
+  --category-url <url>   Amazon bestsellers category URL
+
+Optional:
+  --limit <n>            Number of top sellers (default: 10)
+  --concurrency <n>      Parallel products (default: 10; lower if Amazon blocks)
+  --cookies <path>       Path to amazon cookies JSON
+  --reviews-per-star <n> Reviews per star bucket (default: 50; lower = faster)
+  --max-reviews <n>      Max reviews per product (default: 250; lower = faster)
+  --best-sellers-output <path>
+  --output <path>
+  --headed
+`);
 }
 
 async function scrapeBestSellers(options) {
@@ -83,6 +107,10 @@ async function scrapeBestSellers(options) {
 
 async function main() {
   const options = parseArgs(process.argv);
+  if (options.help) {
+    printHelp();
+    return;
+  }
   if (!options.categoryUrl) {
     throw new Error('--category-url is required');
   }
@@ -106,6 +134,7 @@ async function main() {
     headless: options.headless,
     reviewsPerStar: options.reviewsPerStar,
     maxReviews: options.maxReviews,
+    concurrency: options.concurrency,
     source: 'best-sellers',
     sourceFile: options.bestSellersOutput,
     category: bestSellers.category,

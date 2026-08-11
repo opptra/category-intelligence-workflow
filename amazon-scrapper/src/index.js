@@ -2,6 +2,7 @@ const { BestSellersScraper } = require('./scrapers/best-sellers');
 const { scrapeProductDetailsAndReviews } = require('./lib/scrape-pipeline');
 const { urlsToItems } = require('./lib/product-input');
 const { resolveCookiesPath } = require('./lib/resolve-cookies');
+const { CONCURRENCY } = require('./lib/constants');
 
 function requirePositiveInt(value, label, fallback) {
   if (value === undefined || value === null) {
@@ -26,7 +27,8 @@ async function fetchCatalogData({
   headless = 'new',
   reviewsPerStar = 50,
   maxReviews = 250,
-  includeReviews = true
+  includeReviews = true,
+  concurrency
 } = {}) {
   if (!categoryUrl || typeof categoryUrl !== 'string' || !categoryUrl.trim()) {
     throw new Error('categoryUrl is required');
@@ -36,6 +38,7 @@ async function fetchCatalogData({
   }
 
   const limit = requirePositiveInt(topN, 'topN', 10);
+  const resolvedConcurrency = requirePositiveInt(concurrency, 'concurrency', CONCURRENCY);
   const resolvedCookies = cookiesPath || resolveCookiesPath();
 
   const bestSellersScraper = new BestSellersScraper({
@@ -51,39 +54,45 @@ async function fetchCatalogData({
     console.log('FETCH CATALOG DATA — BEST SELLERS');
     console.log('='.repeat(60));
     console.log(`Category URL: ${categoryUrl}`);
-    console.log(`Top N: ${limit}\n`);
+    console.log(`Top N: ${limit}`);
+    console.log(`Concurrency: ${resolvedConcurrency}\n`);
 
     bestSellers = await bestSellersScraper.scrape({ limit });
   } finally {
     await bestSellersScraper.close();
   }
 
-  const top_sellers = await scrapeProductDetailsAndReviews(bestSellers.items, {
-    cookiesPath: resolvedCookies,
-    headless,
-    reviewsPerStar,
-    maxReviews,
-    includeReviews,
-    source: 'best-sellers',
-    category: bestSellers.category,
-    stepLabel: 'TOP SELLERS — PRODUCT DETAILS + REVIEWS'
-  });
-
   const ourItems = urlsToItems(ourProductUrls, bestSellers.category);
   if (ourItems.length === 0) {
     throw new Error('No valid product URLs found in ourProductUrls');
   }
 
-  const our_products = await scrapeProductDetailsAndReviews(ourItems, {
+  const sharedOpts = {
     cookiesPath: resolvedCookies,
     headless,
     reviewsPerStar,
     maxReviews,
     includeReviews,
-    source: 'our-products',
-    category: bestSellers.category,
-    stepLabel: 'OUR PRODUCTS — PRODUCT DETAILS + REVIEWS'
-  });
+    concurrency: resolvedConcurrency,
+    category: bestSellers.category
+  };
+
+  console.log('\n' + '='.repeat(60));
+  console.log('FETCH CATALOG DATA — TOP SELLERS + OUR PRODUCTS (PARALLEL)');
+  console.log('='.repeat(60));
+
+  const [top_sellers, our_products] = await Promise.all([
+    scrapeProductDetailsAndReviews(bestSellers.items, {
+      ...sharedOpts,
+      source: 'best-sellers',
+      stepLabel: 'TOP SELLERS — PRODUCT DETAILS + REVIEWS'
+    }),
+    scrapeProductDetailsAndReviews(ourItems, {
+      ...sharedOpts,
+      source: 'our-products',
+      stepLabel: 'OUR PRODUCTS — PRODUCT DETAILS + REVIEWS'
+    })
+  ]);
 
   return { our_products, top_sellers };
 }

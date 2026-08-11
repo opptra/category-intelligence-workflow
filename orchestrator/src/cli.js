@@ -11,7 +11,8 @@ function parseArgs(argv) {
     cookiesPath: null,
     headless: 'new',
     reviewsPerStar: 50,
-    maxReviews: 250
+    maxReviews: 250,
+    concurrency: null
   };
 
   for (let i = 2; i < argv.length; i++) {
@@ -28,6 +29,8 @@ function parseArgs(argv) {
       options.reviewsPerStar = parseInt(argv[++i], 10);
     } else if (arg === '--max-reviews' && argv[i + 1]) {
       options.maxReviews = parseInt(argv[++i], 10);
+    } else if (arg === '--concurrency' && argv[i + 1]) {
+      options.concurrency = parseInt(argv[++i], 10);
     } else if (arg === '--headed') {
       options.headless = false;
     } else if (arg === '--help' || arg === '-h') {
@@ -48,9 +51,10 @@ Required:
 
 Optional:
   --top-n <n>            Number of top sellers to fetch (default: 10)
+  --concurrency <n>      Parallel products per browser (default: 10; lower if Amazon blocks)
   --cookies <path>       Path to amazon cookies JSON
-  --reviews-per-star <n> Reviews per star bucket (default: 50)
-  --max-reviews <n>      Max reviews per product (default: 250)
+  --reviews-per-star <n> Reviews per star bucket (default: 50; lower = faster)
+  --max-reviews <n>      Max reviews per product (default: 250; lower = faster)
   --headed               Run browser headed
 `);
 }
@@ -69,10 +73,11 @@ async function main() {
     throw new Error('At least one --url is required');
   }
 
-  const { outputPath, report } = await runCatalogPipeline(options);
+  const { outputPath, scrapePath, report } = await runCatalogPipeline(options);
   console.log('\nPipeline complete.');
   console.log(`Category: ${report.meta.category}`);
-  console.log(`Output:   ${outputPath}`);
+  console.log(`Analysis: ${outputPath}`);
+  console.log(`Scrape:   ${scrapePath}`);
 }
 
 main().catch((err) => {
