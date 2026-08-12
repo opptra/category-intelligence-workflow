@@ -20,6 +20,7 @@
         },
         "slots": {
           "type": "array",
+          "minItems": 1,
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -54,6 +55,7 @@
         },
         "slots": {
           "type": "array",
+          "minItems": 1,
           "items": {
             "type": "object",
             "additionalProperties": false,

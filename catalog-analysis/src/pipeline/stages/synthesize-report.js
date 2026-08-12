@@ -192,6 +192,18 @@ Write a category summary from the research.
   return { summary: result.summary.trim() };
 }
 
+function describeLexiconShape(result) {
+  const lex = result?.category_lexicon;
+  if (!lex || typeof lex !== 'object') {
+    return `top_keys=${result && typeof result === 'object' ? Object.keys(result).join(',') : typeof result}`;
+  }
+  const obs = lex.observations;
+  return `lexicon_keys=${Object.keys(lex).join(',')}`
+    + `; observations_type=${obs === null ? 'null' : typeof obs}`
+    + `; observations_len=${typeof obs === 'string' ? obs.length : 'n/a'}`
+    + `; terms_len=${Array.isArray(lex.terms) ? lex.terms.length : 'n/a'}`;
+}
+
 async function synthesizeLexicon({ llm, category, research, log }) {
   if (log) log('S5b', 'Building category lexicon...');
   const result = await llm.completeTool({
@@ -203,18 +215,24 @@ Research:
 ${compactJson(researchForLexicon(research))}
 
 Build the category lexicon from competitor/leader listings only.
-- Cover how leaders use seller vocabulary across title, bullets, highlights, A+, specs
-- Prefer ~30–50 terms when the corpus supports it
+
+Rules:
+- category_lexicon.observations: required non-empty paragraph on how leaders use seller vocabulary across title, bullets, highlights, A+, specs (write this BEFORE terms)
+- category_lexicon.terms: ~30–50 seller/search terms from competitor/leader listings only; classify each as high, medium, or low relevance
 - No ASINs`,
     maxTokens: 8192
   });
 
-  requireFields(result, { values: ['category_lexicon'] }, 'lexicon result');
-  requireFields(result.category_lexicon, {
-    strings: ['observations'],
-    arrays: ['terms']
-  }, 'category_lexicon');
-  validateLexiconTerms(result.category_lexicon.terms);
+  try {
+    requireFields(result, { values: ['category_lexicon'] }, 'lexicon result');
+    requireFields(result.category_lexicon, {
+      strings: ['observations'],
+      arrays: ['terms']
+    }, 'category_lexicon');
+    validateLexiconTerms(result.category_lexicon.terms);
+  } catch (err) {
+    throw new Error(`${err.message} (${describeLexiconShape(result)})`);
+  }
 
   return {
     category_lexicon: {
@@ -235,9 +253,10 @@ Research:
 ${compactJson(researchForVoc(research))}
 
 Synthesize one unified voice-of-customer section from the research.
-- Merge leader/our mines into one narrative (no leaders/ours buckets)
-- Include complaints and objections, not only praise
-- Prefer ~25–40 signals when the sample supports it
+
+Rules:
+- voice_of_customer.observations: required non-empty narrative merging leader/our mines (write this BEFORE signals; no leaders/ours buckets)
+- voice_of_customer.signals: buyer phrases with sentiment (praise, complaint, objection, neutral), relevance, and approximate mention_count; include complaints and objections, not only praise; prefer ~25–40 when the sample supports it
 - No ASINs, no source labels`,
     maxTokens: 8192
   });

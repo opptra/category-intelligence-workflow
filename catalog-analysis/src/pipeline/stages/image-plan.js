@@ -1,9 +1,11 @@
 const { normalizeRoleKey } = require('./visual-summary');
-const { toolDefinition } = require('../../utils/schema-tools');
+const { toolDefinition, strictToolDefinition } = require('../../utils/schema-tools');
 const { compactJson } = require('../../utils/prompt-data');
 const { mapWithConcurrency } = require('./images');
 
-const COMPOSITION_TOOL = toolDefinition(
+// Strict mode grammar-constrains the composition output so a surface with
+// evidence can never come back with an empty slots[] (schema minItems:1).
+const COMPOSITION_TOOL = strictToolDefinition(
   'image-plan-composition',
   'Decide gallery and A+ slot composition from observed evidence (counts, roles, priorities)'
 );
@@ -226,29 +228,16 @@ function finalizeCompositionTrack(rawTrack, evidenceSurface, surface) {
     });
   }
 
+  // No silent dump-all-roles fallback — fail so we can see why composition missed.
   if (!accepted.length) {
-    const sorted = [...roles].sort((a, b) => {
-      const pa = Number.isFinite(a.typical_position) ? a.typical_position : 999;
-      const pb = Number.isFinite(b.typical_position) ? b.typical_position : 999;
-      return pa - pb || (b.prevalence || 0) - (a.prevalence || 0);
-    });
-    for (const role of sorted) {
-      accepted.push({
-        role: role.canonical,
-        kind: role.kind || 'supporting',
-        priority: 'extended',
-        order: accepted.length + 1,
-        evidence: {
-          prevalence: role.prevalence,
-          per_listing: role.per_listing,
-          typical_position: role.typical_position
-        },
-        _content_tags: role.content_tags || [],
-        _board_facts: role.board_facts || [],
-        _board_layouts: role.board_layouts || [],
-        _board_types: role.board_types || []
-      });
-    }
+    const rawRoles = (rawTrack?.slots || []).map((s) => s?.role).filter(Boolean);
+    throw new Error(
+      `image_plan ${surface}: composition returned no slots that match observed roles`
+      + ` (raw_slots=${rawRoles.length || 0}`
+      + `; dropped=[${dropped.slice(0, 12).join('; ')}]`
+      + `; observed_roles=${roles.length}`
+      + `; recommended_build=${rawTrack?.recommended_build ?? 'n/a'})`
+    );
   }
 
   const coreCount = accepted.filter((s) => s.priority === 'core').length;
@@ -275,7 +264,7 @@ function finalizeCompositionTrack(rawTrack, evidenceSurface, surface) {
     recommended_build,
     build_rationale: sanitizeBrief(
       rawTrack?.build_rationale
-        || `Derived from ${roles.length} observed ${surface} roles`,
+        || `Composition for ${accepted.length} ${surface} slots`,
       240
     ),
     slots: accepted,

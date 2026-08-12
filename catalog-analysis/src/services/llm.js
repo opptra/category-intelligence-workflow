@@ -178,6 +178,9 @@ function createAnthropicClient(config) {
         name: tool.name,
         description: tool.description || '',
         input_schema: tool.input_schema,
+        // strict: true makes Anthropic grammar-constrain sampling to the schema
+        // (e.g. slots minItems:1 becomes a hard guarantee, not a hint).
+        ...(tool.strict ? { strict: true } : {}),
         cache_control: { type: 'ephemeral' }
       }];
       // Streamed, not create(): long generations (topics ~2 min) return zero
@@ -198,7 +201,8 @@ function createAnthropicClient(config) {
       console.log(
         `[llm] ${tool.name}: ${elapsed}s`
         + ` (in=${usage.input_tokens ?? '?'}+${usage.cache_creation_input_tokens ?? 0}c`
-        + `, out=${usage.output_tokens ?? '?'} tokens)`
+        + `, out=${usage.output_tokens ?? '?'} tokens`
+        + `, stop=${response.stop_reason || 'n/a'})`
       );
       return extractToolInput(response, tool.name);
     }, `completeTool:${tool.name}`);

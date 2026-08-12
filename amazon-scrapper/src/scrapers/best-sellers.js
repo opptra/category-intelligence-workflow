@@ -9,9 +9,7 @@ class BestSellersScraper {
 
     this.domain = options.domain || 'www.amazon.in';
     this.categoryUrl = options.categoryUrl.trim();
-    this.categoryName = typeof options.categoryName === 'string' && options.categoryName.trim()
-      ? options.categoryName.trim()
-      : null;
+    this.categoryName = null;
     this.limit = options.limit || 10;
     this.session = new BrowserSession({
       cookiesPath: options.cookiesPath,
@@ -81,10 +79,6 @@ class BestSellersScraper {
   }
 
   async resolveCategoryName(page) {
-    if (this.categoryName && !this.isGenericCategoryName(this.categoryName)) {
-      return this.categoryName.trim();
-    }
-
     const name = await page.evaluate(() => {
       const clean = (value) => {
         const text = String(value || '').replace(/\s+/g, ' ').trim();
@@ -140,9 +134,21 @@ class BestSellersScraper {
       return fromUrl;
     }
 
-    throw new Error(
-      `Could not resolve category name from bestsellers page: ${this.categoryUrl}`
+    // Don't fail here — product-page breadcrumbs are a better source and are
+    // resolved later in fetchCatalogData. Keep a diagnostic for the logs.
+    const debug = await page.evaluate(() => ({
+      title: document.title || null,
+      h1: (document.querySelector('#zg-right-col h1')
+        || document.querySelector('.zg-banner-text h1')
+        || document.querySelector('h1'))?.textContent?.replace(/\s+/g, ' ').trim() || null
+    }));
+    console.warn(
+      `Bestsellers page did not yield a category name`
+      + ` (page.title=${JSON.stringify(debug.title)}; h1=${JSON.stringify(debug.h1)};`
+      + ` url_fallback=${JSON.stringify(fromUrl)}).`
+      + ' Will resolve from product breadcrumbs after PDP scrape.'
     );
+    return null;
   }
 
   async parseBestSellersFromPage(page) {

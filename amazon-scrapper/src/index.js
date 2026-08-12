@@ -2,7 +2,10 @@ const { BestSellersScraper } = require('./scrapers/best-sellers');
 const { scrapeProductDetailsAndReviews } = require('./lib/scrape-pipeline');
 const { urlsToItems } = require('./lib/product-input');
 const { resolveCookiesPath } = require('./lib/resolve-cookies');
+const { categoryFromBreadcrumbs } = require('./lib/amazon-utils');
 const { CONCURRENCY } = require('./lib/constants');
+
+const PENDING_CATEGORY = '__pending_category__';
 
 function requirePositiveInt(value, label, fallback) {
   if (value === undefined || value === null) {
@@ -13,6 +16,37 @@ function requirePositiveInt(value, label, fallback) {
     throw new Error(`${label} must be a positive integer`);
   }
   return n;
+}
+
+function stampCategory(envelope, category) {
+  if (!envelope || typeof envelope !== 'object') return envelope;
+  const products = Array.isArray(envelope.products)
+    ? envelope.products.map((p) => (p && !p.error ? { ...p, category } : p))
+    : envelope.products;
+  return { ...envelope, category, products };
+}
+
+/**
+ * Resolve a human category name.
+ * Priority: bestsellers page → our PDP breadcrumbs → top-seller PDP breadcrumbs.
+ */
+function resolveCatalogCategory({ bestsellersName, ourProducts, topSellers }) {
+  if (bestsellersName && typeof bestsellersName === 'string' && bestsellersName.trim()
+    && bestsellersName !== PENDING_CATEGORY) {
+    return { category: bestsellersName.trim(), source: 'bestsellers_page' };
+  }
+
+  const fromOurs = categoryFromBreadcrumbs(ourProducts?.products || []);
+  if (fromOurs) {
+    return { category: fromOurs, source: 'our_product_breadcrumbs' };
+  }
+
+  const fromTops = categoryFromBreadcrumbs(topSellers?.products || []);
+  if (fromTops) {
+    return { category: fromTops, source: 'top_seller_breadcrumbs' };
+  }
+
+  return { category: null, source: null };
 }
 
 /**
@@ -62,7 +96,12 @@ async function fetchCatalogData({
     await bestSellersScraper.close();
   }
 
-  const ourItems = urlsToItems(ourProductUrls, bestSellers.category);
+  // Category may still be unknown (numeric bestsellers nodes often have no slug).
+  // Product PDP breadcrumbs are the reliable source — stamp after scrape.
+  const provisionalCategory = (bestSellers.category && String(bestSellers.category).trim())
+    || PENDING_CATEGORY;
+
+  const ourItems = urlsToItems(ourProductUrls, provisionalCategory);
   if (ourItems.length === 0) {
     throw new Error('No valid product URLs found in ourProductUrls');
   }
@@ -74,7 +113,7 @@ async function fetchCatalogData({
     maxReviews,
     includeReviews,
     concurrency: resolvedConcurrency,
-    category: bestSellers.category
+    category: provisionalCategory
   };
 
   console.log('\n' + '='.repeat(60));
@@ -94,7 +133,30 @@ async function fetchCatalogData({
     })
   ]);
 
-  return { our_products, top_sellers };
+  const resolved = resolveCatalogCategory({
+    bestsellersName: bestSellers.category,
+    ourProducts: our_products,
+    topSellers: top_sellers
+  });
+
+  if (!resolved.category) {
+    const sampleCrumbs = [...(our_products.products || []), ...(top_sellers.products || [])]
+      .filter((p) => p && !p.error && Array.isArray(p.breadcrumbs) && p.breadcrumbs.length)
+      .slice(0, 3)
+      .map((p) => `${p.asin}: ${JSON.stringify(p.breadcrumbs)}`);
+    throw new Error(
+      'Could not resolve category name from bestsellers page or product breadcrumbs'
+      + ` (bestsellers_url=${categoryUrl}`
+      + `; sample_breadcrumbs=${sampleCrumbs.length ? sampleCrumbs.join(' | ') : 'none'})`
+    );
+  }
+
+  console.log(`\nCategory resolved from ${resolved.source}: ${resolved.category}`);
+
+  return {
+    our_products: stampCategory(our_products, resolved.category),
+    top_sellers: stampCategory(top_sellers, resolved.category)
+  };
 }
 
-module.exports = { fetchCatalogData };
+module.exports = { fetchCatalogData, categoryFromBreadcrumbs, resolveCatalogCategory };
