@@ -27,22 +27,11 @@
               "consistency_and_hygiene"
             ]
           },
-          "observations": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 2500,
-            "description": "Research findings for this topic in prose"
-          },
+          "observations": { "type": "string", "minLength": 1 },
           "actions": {
             "type": "array",
             "minItems": 1,
-            "maxItems": 8,
-            "description": "Category-wide playbook steps; may mention aggregated catalog gaps, never individual SKUs/ASINs",
-            "items": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 400
-            }
+            "items": { "type": "string", "minLength": 1 }
           }
         }
       }

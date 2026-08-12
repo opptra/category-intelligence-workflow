@@ -7,7 +7,7 @@ const {
 const { toolDefinition } = require('../../utils/schema-tools');
 const {
   buildSynthesisResearch,
-  scopeResearchForTopics,
+  buildSynthesisTopicsResearch,
   compactJson
 } = require('../../utils/prompt-data');
 
@@ -296,10 +296,7 @@ function visualObservationRules(topicName) {
 }
 
 function copyTopicRules() {
-  return `- Amazon 2026: title <=75 chars; item_highlights <=125 chars (searchable line under title).
-- title: 75-char pattern only (no legacy long titles).
-- item_highlights: complementary searchable highlight line for overflow benefits/specs.
-- keywords: point to category_lexicon; do not dump the full term list.`;
+  return `- Amazon 2026: title max 75 chars; item_highlights is the complementary searchable line (max 125 chars).`;
 }
 
 function normalizeTopicsResult(result, expectedNames) {
@@ -341,7 +338,8 @@ async function synthesizeTopicBatch({
   log,
   label,
   checkpoint,
-  checkpointKey
+  checkpointKey,
+  maxTokens = 6144
 }) {
   const batchLabel = label || topicNames.join(',');
   if (checkpointKey && checkpoint?.has?.(checkpointKey)) {
@@ -350,31 +348,36 @@ async function synthesizeTopicBatch({
   }
 
   if (log) log('S5d', `Writing topics: ${batchLabel}...`);
-  const scoped = scopeResearchForTopics(research, topicNames);
-  const topicList = topicNames.join(', ');
-  const userPrompt = `Category: ${category}
+
+  // Same shape as the original working topics call: short rules, one forced tool, maxTokens 6144.
+  // Prompt cache on the shared research prefix (tools/system also cached in the Anthropic client).
+  const sharedResearch = buildSynthesisTopicsResearch(research);
+  const sharedContext = `Category: ${category}
 
 Research:
-${compactJson(scoped)}
+${compactJson(sharedResearch)}
 
 Core already written:
-${compactJson({ summary: core.summary, lexicon: core.category_lexicon.observations })}
+${compactJson({ summary: core.summary, lexicon: core.category_lexicon.observations })}`;
 
-Required topic names (each exactly once): ${topicList}
+  const topicList = topicNames.join(', ');
+  const batchInstructions = `Required topic names (each exactly once): ${topicList}
 
 Rules:
-- Primary focus: how top sellers win on each topic
-- Secondary: note catalog-level shortfalls vs that bar when catalog_gaps / our_catalog / vision.ours_vs_leaders support it
+- observations are research findings in prose
+- actions are category-wide, not our-SKU specific
 - topics.keywords should reference category_lexicon for vocabulary, not duplicate the full term list
 - No framework IDs or ASINs
 ${extraRules}`;
 
-  // Output shape and length bounds live in synthesize-topics.schema.json (tool).
   const result = await llm.completeTool({
     system: 'You write category research topic observations for Amazon catalog intelligence.',
     tool: SYNTHESIZE_TOPICS_TOOL,
-    user: userPrompt,
-    maxTokens: 8192
+    user: [
+      { type: 'text', text: sharedContext, cache_control: { type: 'ephemeral' } },
+      { type: 'text', text: batchInstructions }
+    ],
+    maxTokens
   });
 
   const topics = normalizeTopicsResult(result, topicNames);
@@ -392,83 +395,23 @@ ${extraRules}`;
 }
 
 /**
- * Topic synthesis: copy, commerce, gallery, A+ as separate focused batches.
- * Sequential to avoid OpenRouter parallel tool-call drops.
+ * All report topics in one tool call — same design that previously had good latency.
+ * Slot planning stays in S4c; do not overload this call with long visual essay rules.
+ * S5a–c (summary/lexicon/VOC) remain separate tools upstream.
  */
 async function synthesizeTopics({ llm, category, research, core, log, checkpoint }) {
-  // Split copy into two 2-topic calls so tool JSON fits reliably under max_tokens.
-  const titleHighlightTopics = await synthesizeTopicBatch({
+  return synthesizeTopicBatch({
     llm,
     category,
     research,
     core,
-    topicNames: ['title', 'item_highlights'],
+    topicNames: REQUIRED_TOPIC_NAMES,
     extraRules: copyTopicRules(),
     log,
-    label: 'copy (title, highlights)',
+    label: 'all topics',
     checkpoint,
-    checkpointKey: 's5d_topics_copy_title'
-  });
-  const bulletsKeywordsTopics = await synthesizeTopicBatch({
-    llm,
-    category,
-    research,
-    core,
-    topicNames: ['bullets', 'keywords'],
-    extraRules: copyTopicRules(),
-    log,
-    label: 'copy (bullets, keywords)',
-    checkpoint,
-    checkpointKey: 's5d_topics_copy_bullets'
-  });
-  const copyTopics = [...titleHighlightTopics, ...bulletsKeywordsTopics];
-  const commerceTopics = await synthesizeTopicBatch({
-    llm,
-    category,
-    research,
-    core,
-    topicNames: COMMERCE_TOPIC_NAMES,
-    log,
-    label: 'commerce (specs, pricing, reviews, hygiene)',
-    checkpoint,
-    checkpointKey: 's5d_topics_commerce'
-  });
-  const galleryTopics = await synthesizeTopicBatch({
-    llm,
-    category,
-    research,
-    core,
-    topicNames: ['gallery_images'],
-    extraRules: visualObservationRules('gallery_images'),
-    log,
-    label: 'gallery_images',
-    checkpoint,
-    checkpointKey: 's5d_topics_gallery'
-  });
-  const aplusTopics = await synthesizeTopicBatch({
-    llm,
-    category,
-    research,
-    core,
-    topicNames: ['aplus'],
-    extraRules: visualObservationRules('aplus'),
-    log,
-    label: 'aplus',
-    checkpoint,
-    checkpointKey: 's5d_topics_aplus'
-  });
-
-  const byName = new Map();
-  for (const topic of [...copyTopics, ...commerceTopics, ...galleryTopics, ...aplusTopics]) {
-    byName.set(topic.name, topic);
-  }
-
-  return REQUIRED_TOPIC_NAMES.map((name) => {
-    const topic = byName.get(name);
-    if (!topic) {
-      throw new Error(`Synthesized topics missing required topic: ${name}`);
-    }
-    return topic;
+    checkpointKey: 's5d_topics_all',
+    maxTokens: 6144
   });
 }
 

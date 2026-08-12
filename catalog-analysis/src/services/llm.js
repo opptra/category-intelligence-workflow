@@ -47,10 +47,13 @@ function createAnthropicClient(config) {
     throw new Error('ANTHROPIC_API_KEY is required. Set it in your environment.');
   }
 
-  // Single retry layer for all Anthropic calls (no outer stage retries).
+  // withRetry below is the ONLY retry layer. The SDK default (maxRetries: 2)
+  // silently re-ran failed 5-minute requests, so one dying call looked like a
+  // 15-30 minute hang with zero output. Never let the SDK retry on its own.
   const client = new Anthropic({
     apiKey: config.apiKey,
-    timeout: config.requestTimeoutMs || 120000
+    timeout: config.requestTimeoutMs || 300000,
+    maxRetries: 0
   });
   const maxAttempts = 2;
 
@@ -64,6 +67,10 @@ function createAnthropicClient(config) {
         if (isNonRetryableLlmError(err) || attempt >= maxAttempts) {
           throw err;
         }
+        console.warn(
+          `[llm] ${label} attempt ${attempt}/${maxAttempts} failed`
+          + ` (${err.status || err.name || 'error'}: ${err.message}); retrying...`
+        );
         await new Promise((resolve) => setTimeout(resolve, 1500));
       }
     }
@@ -166,14 +173,33 @@ function createAnthropicClient(config) {
 
   async function completeTool({ system, user, tool, maxTokens = 4096 }) {
     return withRetry(async () => {
-      const response = await client.messages.create({
+      // Cache tools+system prefix (Anthropic: mark last tool with cache_control).
+      const tools = [{
+        name: tool.name,
+        description: tool.description || '',
+        input_schema: tool.input_schema,
+        cache_control: { type: 'ephemeral' }
+      }];
+      // Streamed, not create(): long generations (topics ~2 min) return zero
+      // bytes until done, and idle sockets get killed en route ("Connection
+      // error."). SSE keeps the connection alive for the whole generation.
+      const started = Date.now();
+      const stream = client.messages.stream({
         model: config.model,
         max_tokens: maxTokens,
         system: cachedSystem(system),
-        tools: [tool],
+        tools,
         tool_choice: { type: 'tool', name: tool.name },
         messages: [{ role: 'user', content: user }]
       });
+      const response = await stream.finalMessage();
+      const elapsed = ((Date.now() - started) / 1000).toFixed(1);
+      const usage = response.usage || {};
+      console.log(
+        `[llm] ${tool.name}: ${elapsed}s`
+        + ` (in=${usage.input_tokens ?? '?'}+${usage.cache_creation_input_tokens ?? 0}c`
+        + `, out=${usage.output_tokens ?? '?'} tokens)`
+      );
       return extractToolInput(response, tool.name);
     }, `completeTool:${tool.name}`);
   }
@@ -200,7 +226,8 @@ function createAnthropicClient(config) {
         })),
         { type: 'text', text: user }
       ];
-      const response = await client.messages.create({
+      // Streamed for the same reason as completeTool (keep the socket alive).
+      const stream = client.messages.stream({
         model: config.model,
         max_tokens: maxTokens,
         system: cachedSystem(system),
@@ -208,6 +235,7 @@ function createAnthropicClient(config) {
         tool_choice: { type: 'tool', name: tool.name },
         messages: [{ role: 'user', content }]
       });
+      const response = await stream.finalMessage();
       return extractToolInput(response, tool.name);
     }, `completeVisionTool:${tool.name}`);
   }
