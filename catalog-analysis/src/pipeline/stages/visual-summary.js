@@ -1,21 +1,21 @@
 const { detectSignalsFromCells, SIGNAL_DETECTORS } = require('../../domain/vision-signals');
+const { resolveCanonicalRole, normalizeRoleKey } = require('./role-taxonomy');
 
-/**
- * Normalize free-text roles so near-duplicates merge
- * (e.g. "Hero Lifestyle Shot" vs "Hero / Main Lifestyle Shot").
- */
-function normalizeRoleKey(role) {
-  return String(role || '')
-    .toLowerCase()
-    .replace(/[/_·•\-–—]+/g, ' ')
-    .replace(/[^a-z0-9]+/g, ' ')
-    .replace(/\b(main|primary|secondary|the|a|an|and|or|with)\b/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+function round1(n) {
+  return Math.round(n * 10) / 10;
 }
 
 function round2(n) {
   return Math.round(n * 100) / 100;
+}
+
+function median(values) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2
+    ? sorted[mid]
+    : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
 function frequencyList(countMap, n, { labelKey = 'label' } = {}) {
@@ -28,11 +28,26 @@ function frequencyList(countMap, n, { labelKey = 'label' } = {}) {
     .sort((a, b) => b.count - a.count || String(a[labelKey]).localeCompare(String(b[labelKey])));
 }
 
+function emptyRoleBucket(canonical, kind) {
+  return {
+    role: canonical,
+    kind,
+    listingAsins: new Set(),
+    total_cells: 0,
+    positions: [],
+    tagCounts: new Map(),
+    boardFacts: new Set(),
+    boardLayouts: new Set(),
+    boardTypes: new Set()
+  };
+}
+
 /**
- * Pure track summary: role frequency + derived signals + note frequency.
- * Call once per track (pdp / aplus). Never merge tracks into one bucket.
+ * Pure track summary with optional canonical taxonomy.
+ * Pass A: prevalence, total_cells, typical_per_listing, typical_position
+ * Pass B: content_tags, board_facts, board_layouts, board_types per role
  */
-function buildTrackSummary(results = [], { track } = {}) {
+function buildTrackSummary(results = [], { track, taxonomy = null } = {}) {
   if (!track || (track !== 'pdp' && track !== 'aplus')) {
     throw new Error('buildTrackSummary requires track: "pdp" | "aplus"');
   }
@@ -49,21 +64,61 @@ function buildTrackSummary(results = [], { track } = {}) {
     }
 
     const rolesSeen = new Set();
-    for (const role of result.present_roles || []) {
-      rolesSeen.add(role);
-    }
+
     for (const cell of result.cells || []) {
-      if (cell.role) rolesSeen.add(cell.role);
+      const rawRole = cell.role;
+      if (!rawRole || rawRole === 'other' || rawRole === 'unclassified') continue;
+
+      const resolved = taxonomy
+        ? resolveCanonicalRole(rawRole, taxonomy)
+        : { canonical: rawRole, kind: cell.kind || 'supporting' };
+      const canonical = resolved.canonical;
+      const kind = resolved.kind || cell.kind || 'supporting';
+      const key = normalizeRoleKey(canonical) || canonical.toLowerCase();
+      rolesSeen.add(key);
+
+      if (!roleMap.has(key)) {
+        roleMap.set(key, emptyRoleBucket(canonical, kind));
+      }
+      const bucket = roleMap.get(key);
+      bucket.total_cells += 1;
+      if (result.asin) bucket.listingAsins.add(result.asin);
+
+      const position = Number.isFinite(cell.position)
+        ? cell.position
+        : (Number.isFinite(cell.cell) ? cell.cell - 1 : null);
+      if (Number.isFinite(position)) bucket.positions.push(position);
+
+      for (const tag of cell.content_tags || []) {
+        const t = String(tag || '').trim();
+        if (!t) continue;
+        bucket.tagCounts.set(t, (bucket.tagCounts.get(t) || 0) + 1);
+      }
+
+      if (cell.board) {
+        for (const fact of cell.board.facts || []) {
+          const f = String(fact || '').trim();
+          if (f) bucket.boardFacts.add(f);
+        }
+        const layout = String(cell.board.layout || '').trim();
+        if (layout) bucket.boardLayouts.add(layout);
+        const boardType = String(cell.board.board_type || '').trim();
+        if (boardType) bucket.boardTypes.add(boardType);
+      }
     }
 
-    for (const role of rolesSeen) {
-      if (!role || role === 'other') continue;
-      const key = normalizeRoleKey(role);
-      if (!key) continue;
+    // Include present_roles that may not appear as cells (legacy / summary-only).
+    for (const role of result.present_roles || []) {
+      if (!role || role === 'other' || role === 'unclassified') continue;
+      const resolved = taxonomy
+        ? resolveCanonicalRole(role, taxonomy)
+        : { canonical: role, kind: 'supporting' };
+      const key = normalizeRoleKey(resolved.canonical) || resolved.canonical.toLowerCase();
+      rolesSeen.add(key);
       if (!roleMap.has(key)) {
-        roleMap.set(key, { label: role, count: 0 });
+        roleMap.set(key, emptyRoleBucket(resolved.canonical, resolved.kind));
       }
-      roleMap.get(key).count += 1;
+      if (result.asin) roleMap.get(key).listingAsins.add(result.asin);
     }
 
     for (const note of result.quality_notes || []) {
@@ -92,19 +147,42 @@ function buildTrackSummary(results = [], { track } = {}) {
     }
   }
 
-  const sortedImages = [...imageCounts].sort((a, b) => a - b);
-  const mid = Math.floor(sortedImages.length / 2);
-  const median_image_count = sortedImages.length
-    ? (sortedImages.length % 2
-      ? sortedImages[mid]
-      : (sortedImages[mid - 1] + sortedImages[mid]) / 2)
-    : null;
+  const roles = [...roleMap.values()]
+    .map((bucket) => {
+      const listings_containing = bucket.listingAsins.size;
+      const content_tags = [...bucket.tagCounts.entries()]
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .map(([tag]) => tag);
+      return {
+        role: bucket.role,
+        kind: bucket.kind,
+        count: listings_containing,
+        prevalence: n > 0 ? round2(listings_containing / n) : 0,
+        total_cells: bucket.total_cells,
+        typical_per_listing: listings_containing > 0
+          ? round1(bucket.total_cells / listings_containing)
+          : 0,
+        typical_position: median(bucket.positions),
+        content_tags,
+        board_facts: [...bucket.boardFacts],
+        board_layouts: [...bucket.boardLayouts],
+        board_types: [...bucket.boardTypes]
+      };
+    })
+    .sort((a, b) => b.count - a.count || a.role.localeCompare(b.role));
+
+  const imageStats = {
+    min: imageCounts.length ? Math.min(...imageCounts) : null,
+    median: median(imageCounts),
+    max: imageCounts.length ? Math.max(...imageCounts) : null
+  };
 
   return {
     track,
     n_analyzed: n,
-    median_image_count,
-    roles: frequencyList(roleMap, n, { labelKey: 'role' }),
+    median_image_count: imageStats.median,
+    image_count: imageStats,
+    roles,
     signals: Object.entries(signalCounts)
       .map(([signal, count]) => ({
         signal,
@@ -116,6 +194,9 @@ function buildTrackSummary(results = [], { track } = {}) {
   };
 }
 
+/**
+ * Gap-report knob only (not a planning rule): roles with prevalence >= threshold.
+ */
 function requiredRolesFromSummary(summary, { threshold = 0.5, fallbackLimit = 6 } = {}) {
   const roles = summary?.roles || [];
   let required = roles

@@ -8,7 +8,7 @@ function slugifyCategory(category) {
     .replace(/^-|-$/g, '');
 }
 
-function assembleReport({ meta, config, synthesized }) {
+function assembleReport({ meta, config, synthesized, imagePlan, backendKeywords }) {
   const normalized = normalizeReportSections({
     category_lexicon: synthesized.category_lexicon,
     voice_of_customer: synthesized.voice_of_customer
@@ -28,6 +28,8 @@ function assembleReport({ meta, config, synthesized }) {
     category_lexicon: normalized.category_lexicon,
     voice_of_customer: normalized.voice_of_customer,
     catalog_gaps: synthesized.catalog_gaps,
+    backend_keywords: backendKeywords,
+    image_plan: imagePlan,
     topics: synthesized.topics
   };
 

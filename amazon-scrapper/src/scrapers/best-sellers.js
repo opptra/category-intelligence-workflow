@@ -9,9 +9,7 @@ class BestSellersScraper {
 
     this.domain = options.domain || 'www.amazon.in';
     this.categoryUrl = options.categoryUrl.trim();
-    this.categoryName = typeof options.categoryName === 'string' && options.categoryName.trim()
-      ? options.categoryName.trim()
-      : null;
+    this.categoryName = null;
     this.limit = options.limit || 10;
     this.session = new BrowserSession({
       cookiesPath: options.cookiesPath,
@@ -20,31 +18,137 @@ class BestSellersScraper {
     });
   }
 
-  async resolveCategoryName(page) {
-    if (this.categoryName) {
-      return this.categoryName;
-    }
+  isGenericCategoryName(name) {
+    if (!name || typeof name !== 'string') return true;
+    const cleaned = name.replace(/\s+/g, ' ').trim();
+    if (!cleaned) return true;
+    if (/^undefined$/i.test(cleaned)) return true;
+    if (/^best\s*sellers?$/i.test(cleaned)) return true;
+    if (/^amazon(\.in)?\s+best\s*sellers?$/i.test(cleaned)) return true;
+    return false;
+  }
 
+  categoryNameFromUrl(url) {
+    try {
+      const pathname = new URL(url).pathname;
+      const parts = pathname.split('/').filter(Boolean);
+      const skip = new Set([
+        'gp',
+        'bestsellers',
+        'b',
+        'ref',
+        'dp',
+        'product',
+        'kitchen',
+        'home-improvement',
+        'electronics',
+        'books',
+        'computers',
+        'apparel',
+        'beauty',
+        'toys',
+        'automotive',
+        'sports',
+        'grocery',
+        'hpc',
+        'baby',
+        'pets',
+        'office-products',
+        'industrial',
+        'lawn-garden',
+        'musical-instruments',
+        'digital-text'
+      ]);
+
+      for (const part of parts) {
+        if (/^\d+$/.test(part)) continue;
+        if (skip.has(part.toLowerCase())) continue;
+        if (!/[a-zA-Z]/.test(part)) continue;
+        // Prefer multi-word Amazon category slugs (e.g. Home-Furnishing-Panels)
+        if (!part.includes('-')) continue;
+        return part
+          .replace(/[-_]+/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .replace(/\b\w/g, (c) => c.toUpperCase());
+      }
+    } catch {
+      // ignore invalid URLs
+    }
+    return null;
+  }
+
+  async resolveCategoryName(page) {
     const name = await page.evaluate(() => {
+      const clean = (value) => {
+        const text = String(value || '').replace(/\s+/g, ' ').trim();
+        if (!text) return null;
+        if (/^undefined$/i.test(text)) return null;
+        if (/^best\s*sellers?$/i.test(text)) return null;
+        if (/^amazon(\.in)?\s+best\s*sellers?$/i.test(text)) return null;
+        return text;
+      };
+
+      const fromBestSellersIn = (text) => {
+        const match = String(text || '').match(/Best\s*Sellers?\s+in\s+(.+)/i);
+        return match ? clean(match[1]) : null;
+      };
+
       const heading =
         document.querySelector('#zg-right-col h1') ||
         document.querySelector('.zg-banner-text h1') ||
         document.querySelector('h1');
-      const text = heading?.textContent?.trim() || '';
-      const match = text.match(/Best\s*Sellers?\s+in\s+(.+)/i);
-      if (match?.[1]) {
-        return match[1].trim();
+      const fromHeading =
+        fromBestSellersIn(heading?.textContent) || clean(heading?.textContent);
+      if (fromHeading) return fromHeading;
+
+      const title = document.title || '';
+      const titleMatch =
+        title.match(/most popular items in\s+(.+?)(?:\s*\||$)/i) ||
+        title.match(/Best\s*Sellers?:\s*(.+?)(?:\s*\||$)/i);
+      const fromTitle = clean(titleMatch?.[1]);
+      if (fromTitle) return fromTitle;
+
+      const selected =
+        document.querySelector('#zg_browseRoot .zg_selected') ||
+        document.querySelector('#zg-left-col .zg_selected');
+      const fromSelected = clean(selected?.textContent);
+      if (fromSelected) return fromSelected;
+
+      const crumbs = [...document.querySelectorAll('#zg_browseRoot li, #zg_browseRoot a, #zg_browseRoot span')]
+        .map((el) => clean(el.textContent))
+        .filter(Boolean);
+      if (crumbs.length) {
+        return crumbs[crumbs.length - 1];
       }
-      return text || null;
+
+      return null;
     });
 
-    if (!name) {
-      throw new Error(
-        `Could not resolve category name from bestsellers page: ${this.categoryUrl}`
-      );
+    if (name && !this.isGenericCategoryName(name)) {
+      return name;
     }
 
-    return name;
+    const fromUrl = this.categoryNameFromUrl(this.categoryUrl);
+    if (fromUrl && !this.isGenericCategoryName(fromUrl)) {
+      return fromUrl;
+    }
+
+    // Don't fail here — product-page breadcrumbs are a better source and are
+    // resolved later in fetchCatalogData. Keep a diagnostic for the logs.
+    const debug = await page.evaluate(() => ({
+      title: document.title || null,
+      h1: (document.querySelector('#zg-right-col h1')
+        || document.querySelector('.zg-banner-text h1')
+        || document.querySelector('h1'))?.textContent?.replace(/\s+/g, ' ').trim() || null
+    }));
+    console.warn(
+      `Bestsellers page did not yield a category name`
+      + ` (page.title=${JSON.stringify(debug.title)}; h1=${JSON.stringify(debug.h1)};`
+      + ` url_fallback=${JSON.stringify(fromUrl)}).`
+      + ' Will resolve from product breadcrumbs after PDP scrape.'
+    );
+    return null;
   }
 
   async parseBestSellersFromPage(page) {

@@ -315,6 +315,45 @@ class ProductDetailsScraper {
         .map((el) => el.textContent.replace(/\s+/g, ' ').trim())
         .filter((text) => text && !/^see more$/i.test(text));
 
+      const itemHighlights = Array.from(
+        document.querySelectorAll(
+          '#productFactsDesktop_feature_div .a-unordered-list span.a-list-item, '
+          + '#productFactsDesktop_feature_div li, '
+          + '#poExpander .a-unordered-list span.a-list-item, '
+          + '#poExpander li, '
+          + '#productOverview_feature_div tr, '
+          + '#productOverview_feature_div .a-spacing-small'
+        )
+      )
+        .map((el) => {
+          if (el.tagName === 'TR') {
+            const key = el.querySelector('td:first-child, th')?.textContent?.replace(/\s+/g, ' ').trim();
+            const value = el.querySelector('td:last-child')?.textContent?.replace(/\s+/g, ' ').trim();
+            if (key && value && key !== value) return `${key}: ${value}`;
+            return value || key || '';
+          }
+          return el.textContent.replace(/\s+/g, ' ').trim();
+        })
+        .filter((text) => text && text.length > 2 && !/^see more$/i.test(text));
+
+      const breadcrumbs = Array.from(
+        document.querySelectorAll('#wayfinding-breadcrumbs_feature_div ul li a, #wayfinding-breadcrumbs_feature_div a')
+      )
+        .map((el) => el.textContent.replace(/\s+/g, ' ').trim())
+        .filter(Boolean);
+
+      const badges = {
+        amazons_choice: Boolean(document.querySelector('#acBadge_feature_div, .ac-badge-wrapper')),
+        best_seller: Boolean(
+          document.querySelector('#zeitgeistBadge_feature_div, .p13n-best-seller-badge, #badge-link')
+        ) || /best\s*seller/i.test(
+          document.querySelector('#zeitgeistBadge_feature_div')?.textContent || ''
+        ),
+        climate_pledge: Boolean(
+          document.querySelector('#climatePledgeFriendlyBadge, [data-csa-c-content-id*="climate"]')
+        ) || /climate\s*pledge/i.test(document.body.innerText.slice(0, 5000))
+      };
+
       const descriptionCandidates = [
         document.querySelector('#productDescription')?.innerText,
         document.querySelector('#productDescription_feature_div')?.innerText,
@@ -360,18 +399,83 @@ class ProductDetailsScraper {
         ...extractGalleryImagesFromScripts(scriptTexts)
       ]);
 
-      const aplusRoots = Array.from(document.querySelectorAll(aplusSelectors));
-      const aplusImageUrls = dedupeAplusImageUrls(
-        aplusRoots.flatMap((root) => collectAplusImageSources(root))
+      const altById = new Map();
+      for (const img of document.querySelectorAll('#altImages img, #landingImage, #imgTagWrapperId img')) {
+        const url = toHiResImageUrl(img.src || img.getAttribute('data-old-hires') || img.getAttribute('data-a-hires'));
+        const alt = (img.getAttribute('alt') || '').replace(/\s+/g, ' ').trim();
+        if (!url || !alt) continue;
+        const imageId = imageIdFromUrl(url) || url;
+        if (!altById.has(imageId)) altById.set(imageId, alt);
+      }
+      const productImageAlts = galleryImageUrls.map((url) => {
+        const imageId = imageIdFromUrl(url) || url;
+        return altById.get(imageId) || '';
+      });
+
+      const hasVideo = Boolean(
+        document.querySelector(
+          '#altImages .videoBlock, #altImages .vse-video, #altImages [data-video-url], '
+          + '#vse-player-container, .vjs-tech, video'
+        )
       );
 
-      const aplusTextBlocks = aplusRoots
-        .flatMap((root) =>
-          Array.from(root.querySelectorAll('p, h1, h2, h3, h4, h5, li')).map((el) =>
-            el.textContent.replace(/\s+/g, ' ').trim()
-          )
-        )
-        .filter((text) => text.length > 20 && !isVideoText(text));
+      let variations = {
+        parent_asin: null,
+        dimensions: {},
+        dimension_values_display_data: null
+      };
+      for (const scriptText of scriptTexts) {
+        if (!/dimensionValuesDisplayData|parentAsin/.test(scriptText)) continue;
+        const parentMatch = scriptText.match(/"parentAsin"\s*:\s*"([A-Z0-9]{10})"/);
+        if (parentMatch) variations.parent_asin = parentMatch[1];
+        const dimMatch = scriptText.match(/"dimensionValuesDisplayData"\s*:\s*(\{[\s\S]*?\})\s*,\s*"/);
+        if (dimMatch) {
+          try {
+            variations.dimension_values_display_data = JSON.parse(dimMatch[1]);
+          } catch (_) {
+            /* ignore malformed twister JSON */
+          }
+        }
+        const dimensionsMatch = scriptText.match(/"dimensions"\s*:\s*(\[[\s\S]*?\])\s*,\s*"/);
+        if (dimensionsMatch) {
+          try {
+            const dims = JSON.parse(dimensionsMatch[1]);
+            if (Array.isArray(dims)) {
+              variations.dimensions = Object.fromEntries(
+                dims.map((name, index) => [String(name), index])
+              );
+            }
+          } catch (_) {
+            /* ignore */
+          }
+        }
+        if (variations.parent_asin || variations.dimension_values_display_data) break;
+      }
+
+      const aplusRoots = Array.from(document.querySelectorAll(aplusSelectors));
+      const aplusModules = aplusRoots.map((root, index) => {
+        const className = String(root.className || '');
+        const typeHint =
+          root.getAttribute('data-cel-widget')
+          || root.id
+          || (className.match(/aplus-module-[^\s]+/i) || [])[0]
+          || `aplus-module-${index + 1}`;
+        const images = dedupeAplusImageUrls(collectAplusImageSources(root));
+        const text = Array.from(root.querySelectorAll('p, h1, h2, h3, h4, h5, li'))
+          .map((el) => el.textContent.replace(/\s+/g, ' ').trim())
+          .filter((t) => t.length > 20 && !isVideoText(t));
+        return {
+          type_hint: typeHint,
+          images,
+          text: [...new Set(text)]
+        };
+      }).filter((mod) => mod.images.length || mod.text.length);
+
+      const aplusImageUrls = dedupeAplusImageUrls(
+        aplusModules.flatMap((mod) => mod.images)
+      );
+
+      const aplusTextBlocks = aplusModules.flatMap((mod) => mod.text);
 
       const priceText =
         document.querySelector('#corePrice_feature_div .a-offscreen')?.textContent?.trim() ||
@@ -389,17 +493,50 @@ class ProductDetailsScraper {
         document.querySelector('[data-hook="total-review-count"]')?.textContent?.trim() ||
         null;
 
+      const parsePriceNumber = (text) => {
+        if (!text) return null;
+        const cleaned = String(text).replace(/[^0-9.,]/g, '').replace(/,/g, '');
+        const n = Number.parseFloat(cleaned);
+        return Number.isFinite(n) ? n : null;
+      };
+
+      const parseRatingNumber = (text) => {
+        if (!text) return null;
+        const match = String(text).match(/(\d+(?:\.\d+)?)/);
+        if (!match) return null;
+        const n = Number.parseFloat(match[1]);
+        return Number.isFinite(n) ? n : null;
+      };
+
+      const parseReviewCountNumber = (text) => {
+        if (!text) return null;
+        const match = String(text).replace(/,/g, '').match(/(\d+)/);
+        if (!match) return null;
+        const n = Number.parseInt(match[1], 10);
+        return Number.isFinite(n) ? n : null;
+      };
+
       return {
         title,
         brand,
         feature_bullets: featureBullets,
+        item_highlights: [...new Set(itemHighlights)].slice(0, 20),
+        breadcrumbs,
+        badges,
+        variations,
         description,
         product_details: productDetails,
         price_text: priceText,
+        price: parsePriceNumber(priceText),
         rating_label: ratingLabel,
+        rating: parseRatingNumber(ratingLabel),
         review_count_text: reviewCountText,
+        review_count: parseReviewCountNumber(reviewCountText),
         product_images: galleryImageUrls,
+        product_image_alts: productImageAlts,
+        has_video: hasVideo,
         aplus_images: aplusImageUrls,
+        aplus_modules: aplusModules,
         aplus_text_blocks: [...new Set(aplusTextBlocks)]
       };
     }, APLUS_SELECTORS);
@@ -427,7 +564,11 @@ class ProductDetailsScraper {
 
     await page.evaluate(() => {
       const expanders = document.querySelectorAll(
-        '[data-a-expander-name="product_description"] a, #productDescription_feature_div .a-expander-prompt, #productFactsDesktopExpander .a-expander-prompt'
+        '[data-a-expander-name="product_description"] a, '
+        + '#productDescription_feature_div .a-expander-prompt, '
+        + '#productFactsDesktopExpander .a-expander-prompt, '
+        + '#poExpander .a-expander-prompt, '
+        + '#productFactsDesktop_feature_div .a-expander-prompt'
       );
       for (const expander of expanders) {
         expander.click();

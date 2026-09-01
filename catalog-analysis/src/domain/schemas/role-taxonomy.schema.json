@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["canonical_roles"],
+  "properties": {
+    "canonical_roles": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["canonical", "kind", "members"],
+        "properties": {
+          "canonical": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Clean functional role name for this family"
+          },
+          "kind": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Coarse type for this family (hero, lifestyle, detail, infographic, comparison, feature_banner, supporting, etc.)"
+          },
+          "members": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string" },
+            "description": "Raw role strings from vision that belong to this family"
+          }
+        }
+      }
+    }
+  }
+}

@@ -22,33 +22,44 @@ function parseArgs(argv) {
   return args;
 }
 
-const DEFAULT_OPENROUTER_MODEL = 'anthropic/claude-sonnet-4';
-const DEFAULT_OPENROUTER_BASE_URL = 'https://openrouter.ai/api';
+function resolveLlmSettings() {
+  const llmProvider = (process.env.LLM_PROVIDER || 'openrouter').toLowerCase();
 
-function resolveOpenRouterModel(raw) {
-  const model = (raw || DEFAULT_OPENROUTER_MODEL).trim();
-  return model.includes('/') ? model : `anthropic/${model}`;
+  if (llmProvider === 'anthropic') {
+    return {
+      llmProvider,
+      model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5',
+      apiKey: process.env.ANTHROPIC_API_KEY || '',
+      openRouterSiteUrl: '',
+      openRouterAppName: ''
+    };
+  }
+
+  return {
+    llmProvider: 'openrouter',
+    model: process.env.OPENROUTER_MODEL || 'anthropic/claude-sonnet-4.5',
+    apiKey: process.env.OPENROUTER_API_KEY || '',
+    openRouterSiteUrl: process.env.OPENROUTER_SITE_URL || '',
+    openRouterAppName: process.env.OPENROUTER_APP_NAME || 'scrapper-agent-workflow'
+  };
 }
 
 function buildAnalysisConfig(overrides = {}) {
-  const model = resolveOpenRouterModel(process.env.OPENROUTER_MODEL);
+  const llm = resolveLlmSettings();
 
   return {
     packageRoot: PACKAGE_ROOT,
     cacheDir: path.join(PACKAGE_ROOT, '.cache'),
-    model,
-    apiKey: process.env.OPENROUTER_API_KEY || '',
-    baseURL: process.env.OPENROUTER_BASE_URL || DEFAULT_OPENROUTER_BASE_URL,
+    ...llm,
     reviewSamplePerStar: 30,
     maxNegativeReviews: 80,
     maxPositiveReviews: 40,
-    montageCellSize: 512,
-    montageMaxCells: 12,
-    aplusCellMaxWidth: 800,
-    aplusCellMaxHeight: 360,
-    aplusMaxCells: 10,
-    visionConcurrency: 6,
+    visionImageMaxSide: 1400,
+    visionJpegQuality: 85,
+    visionConcurrency: 8,
+    downloadConcurrency: 20,
     visionMaxTokens: 20000,
+    marketplace: process.env.MARKETPLACE || 'IN',
     refresh: false,
     ...overrides
   };

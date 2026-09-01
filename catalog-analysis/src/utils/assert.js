@@ -21,7 +21,9 @@ function requireNonEmptyArray(value, label) {
 
 function requireApiKey(config) {
   if (!config.apiKey) {
-    throw new Error('OPENROUTER_API_KEY is required. Set it in catalog-analysis/.env.');
+    const provider = (config.llmProvider || 'openrouter').toLowerCase();
+    const envName = provider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENROUTER_API_KEY';
+    throw new Error(`${envName} is required. Set it in your environment.`);
   }
 }
 

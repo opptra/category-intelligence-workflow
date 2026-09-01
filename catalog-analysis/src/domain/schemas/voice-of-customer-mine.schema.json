@@ -6,6 +6,9 @@
   "properties": {
     "signals": {
       "type": "array",
+      "minItems": 10,
+      "maxItems": 60,
+      "description": "Short buyer phrases with approximate mention_count from the sample; include complaints and objections, not only praise",
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -25,12 +28,12 @@
             "minimum": 1
           }
         }
-      },
-      "minItems": 1
+      }
     },
     "themes": {
       "type": "object",
       "additionalProperties": false,
+      "description": "Optional grouping of recurring themes",
       "properties": {
         "praise": {
           "type": "array",

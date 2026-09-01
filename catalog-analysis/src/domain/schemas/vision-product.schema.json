@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["images", "present_roles", "quality_notes"],
+  "properties": {
+    "hero_conventions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "PDP gallery only: recurring hero framing conventions observed across images"
+    },
+    "images": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["position", "role", "kind", "content_tags", "text_present"],
+        "properties": {
+          "position": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "0-based index matching the order images were attached (image 0 first)"
+          },
+          "role": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Free-text functional role (e.g. styled room hero, fabric close-up, size chart). Prefer functional families over angle/crop variants."
+          },
+          "kind": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Coarse type observed for this image (e.g. hero, lifestyle, detail, infographic, comparison, feature_banner)"
+          },
+          "content_tags": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Open-vocabulary concrete elements visible (bed, room, fabric, text-overlay, table, dimensions). Tag a person only if a human is visibly present."
+          },
+          "text_present": {
+            "type": "boolean",
+            "description": "True when readable text or printed board content is visible on the image"
+          },
+          "board": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Required when text_present is true; omit or leave empty when false",
+            "properties": {
+              "board_type": {
+                "type": "string",
+                "description": "Free text: size chart, comparison table, feature callouts, care guide, etc."
+              },
+              "facts": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Actual data points printed on the image"
+              },
+              "layout": {
+                "type": "string",
+                "description": "Short layout description (split panel, 2x2 grid, annotated product)"
+              },
+              "text_density": {
+                "type": "string",
+                "description": "low, medium, or high"
+              }
+            }
+          }
+        }
+      }
+    },
+    "present_roles": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1
+    },
+    "missing_roles": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "quality_notes": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

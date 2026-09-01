@@ -28,6 +28,7 @@ function buildOurCombinedCopy(ours) {
   return ours
     .map((p) => [
       p.title || '',
+      ...(p.item_highlights || []),
       ...(p.feature_bullets || []),
       ...(p.aplus_text_blocks || []),
       p.description || ''
