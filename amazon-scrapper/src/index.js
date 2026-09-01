@@ -17,7 +17,7 @@ function requirePositiveInt(value, label, fallback) {
 
 /**
  * Fetch our products + top-N category sellers as in-memory envelopes.
- * Does not write intermediate JSON files.
+ * Optional onCheckpoint(step, payload) lets the caller persist each major scrape step.
  */
 async function fetchCatalogData({
   ourProductUrls,
@@ -28,7 +28,8 @@ async function fetchCatalogData({
   reviewsPerStar = 50,
   maxReviews = 250,
   includeReviews = true,
-  concurrency
+  concurrency,
+  onCheckpoint
 } = {}) {
   if (!categoryUrl || typeof categoryUrl !== 'string' || !categoryUrl.trim()) {
     throw new Error('categoryUrl is required');
@@ -58,6 +59,9 @@ async function fetchCatalogData({
     console.log(`Concurrency: ${resolvedConcurrency}\n`);
 
     bestSellers = await bestSellersScraper.scrape({ limit });
+    if (typeof onCheckpoint === 'function') {
+      await onCheckpoint('best-sellers', bestSellers);
+    }
   } finally {
     await bestSellersScraper.close();
   }
@@ -86,11 +90,21 @@ async function fetchCatalogData({
       ...sharedOpts,
       source: 'best-sellers',
       stepLabel: 'TOP SELLERS — PRODUCT DETAILS + REVIEWS'
+    }).then(async (payload) => {
+      if (typeof onCheckpoint === 'function') {
+        await onCheckpoint('top-sellers', payload);
+      }
+      return payload;
     }),
     scrapeProductDetailsAndReviews(ourItems, {
       ...sharedOpts,
       source: 'our-products',
       stepLabel: 'OUR PRODUCTS — PRODUCT DETAILS + REVIEWS'
+    }).then(async (payload) => {
+      if (typeof onCheckpoint === 'function') {
+        await onCheckpoint('our-products', payload);
+      }
+      return payload;
     })
   ]);
 

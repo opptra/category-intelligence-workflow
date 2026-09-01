@@ -43,6 +43,105 @@ function buildMetricsContext(competitorMetrics, categoryStandard) {
   };
 }
 
+function coerceText(value) {
+  if (typeof value === 'string' && value.trim()) {
+    return value.trim();
+  }
+  if (Array.isArray(value)) {
+    const joined = value
+      .map((item) => (typeof item === 'string' ? item.trim() : ''))
+      .filter(Boolean)
+      .join(' ');
+    if (joined) {
+      return joined;
+    }
+  }
+  return '';
+}
+
+function topPhrases(items, key, limit) {
+  return (items || [])
+    .map((item) => (item && item[key] ? String(item[key]).trim() : ''))
+    .filter(Boolean)
+    .slice(0, limit);
+}
+
+function fallbackLexiconObservations(category, terms) {
+  const examples = topPhrases(terms, 'term', 15);
+  const sample = examples.length ? examples.join(', ') : 'category-defining search phrases';
+  return (
+    `In ${category}, leaders repeat a tight seller vocabulary across title, bullets, and supporting copy. `
+    + `High-visibility terms include ${sample}. `
+    + 'These phrases match shopper search language and signal material, size, and benefit claims that convert.'
+  );
+}
+
+function fallbackVoiceObservations(category, signals) {
+  const praise = (signals || [])
+    .filter((s) => s.sentiment === 'praise')
+    .map((s) => s.phrase)
+    .filter(Boolean)
+    .slice(0, 6);
+  const issues = (signals || [])
+    .filter((s) => s.sentiment === 'complaint' || s.sentiment === 'objection')
+    .map((s) => s.phrase)
+    .filter(Boolean)
+    .slice(0, 6);
+  const praiseText = praise.length ? `Buyers praise ${praise.join(', ')}.` : 'Buyers reward listings that match category expectations.';
+  const issueText = issues.length ? ` Recurring complaints and objections include ${issues.join(', ')}.` : '';
+  return `In ${category}, review language clusters around fit-to-need and post-purchase quality. ${praiseText}${issueText}`;
+}
+
+function pickObservations(...candidates) {
+  for (const candidate of candidates) {
+    const text = coerceText(candidate);
+    if (text) {
+      return text;
+    }
+  }
+  return '';
+}
+
+function normalizeCoreResult(result, category) {
+  const lexicon = result.category_lexicon && typeof result.category_lexicon === 'object'
+    ? result.category_lexicon
+    : {};
+  const voice = result.voice_of_customer && typeof result.voice_of_customer === 'object'
+    ? result.voice_of_customer
+    : {};
+
+  const lexiconObservations = pickObservations(
+    lexicon.observations,
+    lexicon.observation,
+    result.lexicon_observations
+  ) || fallbackLexiconObservations(category, lexicon.terms);
+
+  const voiceObservations = pickObservations(
+    voice.observations,
+    voice.observation,
+    result.voice_observations
+  ) || fallbackVoiceObservations(category, voice.signals);
+
+  if (!coerceText(lexicon.observations)) {
+    console.warn('[S5] category_lexicon.observations missing from model output; using fallback');
+  }
+  if (!coerceText(voice.observations)) {
+    console.warn('[S5] voice_of_customer.observations missing from model output; using fallback');
+  }
+
+  return {
+    ...result,
+    category_lexicon: {
+      ...lexicon,
+      observations: lexiconObservations
+    },
+    voice_of_customer: {
+      ...voice,
+      observations: voiceObservations
+    }
+  };
+}
+
 function validateLexiconTerms(terms) {
   requireNonEmptyArray(terms, 'category_lexicon.terms');
   for (const term of terms) {
@@ -87,7 +186,7 @@ function validateTopicBatch(topics, expectedNames) {
 }
 
 async function synthesizeCore({ llm, config, category, research }) {
-  const result = await llm.completeTool({
+  let result = await llm.completeTool({
     system: 'You synthesize Amazon category research into a concise intelligence report focused on how top sellers win.',
     tool: SYNTHESIZE_CORE_TOOL,
     user: `Category: ${category}
@@ -110,6 +209,8 @@ Rules:
 - No ASINs, no framework IDs, no per-SKU gap callouts — catalog-level only`,
     maxTokens: 20000
   });
+
+  result = normalizeCoreResult(result, category);
 
   requireFields(result, {
     values: ['category_lexicon', 'voice_of_customer'],

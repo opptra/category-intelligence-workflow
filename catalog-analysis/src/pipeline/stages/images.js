@@ -1,4 +1,5 @@
 const fs = require('fs');
+const path = require('path');
 const sharp = require('sharp');
 const { cachePath, hashInput } = require('../../services/cache');
 const {

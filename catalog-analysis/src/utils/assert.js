@@ -21,7 +21,7 @@ function requireNonEmptyArray(value, label) {
 
 function requireApiKey(config) {
   if (!config.apiKey) {
-    throw new Error('ANTHROPIC_API_KEY is required. Set it in your environment.');
+    throw new Error('OPENROUTER_API_KEY is required. Set it in catalog-analysis/.env.');
   }
 }
 

@@ -22,14 +22,23 @@ function parseArgs(argv) {
   return args;
 }
 
+const DEFAULT_OPENROUTER_MODEL = 'anthropic/claude-sonnet-4';
+const DEFAULT_OPENROUTER_BASE_URL = 'https://openrouter.ai/api';
+
+function resolveOpenRouterModel(raw) {
+  const model = (raw || DEFAULT_OPENROUTER_MODEL).trim();
+  return model.includes('/') ? model : `anthropic/${model}`;
+}
+
 function buildAnalysisConfig(overrides = {}) {
-  const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514';
+  const model = resolveOpenRouterModel(process.env.OPENROUTER_MODEL);
 
   return {
     packageRoot: PACKAGE_ROOT,
     cacheDir: path.join(PACKAGE_ROOT, '.cache'),
     model,
-    apiKey: process.env.ANTHROPIC_API_KEY || '',
+    apiKey: process.env.OPENROUTER_API_KEY || '',
+    baseURL: process.env.OPENROUTER_BASE_URL || DEFAULT_OPENROUTER_BASE_URL,
     reviewSamplePerStar: 30,
     maxNegativeReviews: 80,
     maxPositiveReviews: 40,

@@ -19,10 +19,20 @@ function cachedSystem(system) {
 
 function createLlmClient(config) {
   if (!config.apiKey) {
-    throw new Error('ANTHROPIC_API_KEY is required. Set it in your environment.');
+    throw new Error('OPENROUTER_API_KEY is required. Set it in catalog-analysis/.env.');
   }
 
-  const client = new Anthropic({ apiKey: config.apiKey });
+  // Keep the Anthropic Messages client (tools + vision already use this shape)
+  // but send every request through OpenRouter instead of api.anthropic.com.
+  const client = new Anthropic({
+    apiKey: config.apiKey,
+    baseURL: config.baseURL || 'https://openrouter.ai/api',
+    defaultHeaders: {
+      Authorization: `Bearer ${config.apiKey}`,
+      'HTTP-Referer': 'https://github.com/opptra/category-intelligence-workflow',
+      'X-Title': 'Category Intelligence Workflow'
+    }
+  });
   const maxAttempts = 3;
 
   async function withRetry(fn) {
@@ -96,14 +106,38 @@ function createLlmClient(config) {
     });
   }
 
-  function extractToolInput(response, toolName) {
-    const toolUse = response.content.find(
-      (block) => block.type === 'tool_use' && block.name === toolName
-    );
-    if (!toolUse) {
-      throw new Error(`LLM did not return tool_use for ${toolName}`);
+  function parseToolInput(input) {
+    if (input && typeof input === 'object') {
+      return input;
     }
-    return toolUse.input;
+    if (typeof input === 'string' && input.trim()) {
+      return extractJson(input);
+    }
+    return null;
+  }
+
+  function extractToolInput(response, toolName) {
+    const blocks = response.content || [];
+    const named = blocks.find((block) => block.type === 'tool_use' && block.name === toolName);
+    const anyTool = blocks.find((block) => block.type === 'tool_use');
+    const fromTool = parseToolInput(named?.input) || parseToolInput(anyTool?.input);
+    if (fromTool) {
+      return fromTool;
+    }
+
+    const text = blocks
+      .filter((block) => block.type === 'text')
+      .map((block) => block.text)
+      .join('\n');
+    if (text.trim()) {
+      try {
+        return extractJson(text);
+      } catch {
+        // fall through to the explicit tool_use error
+      }
+    }
+
+    throw new Error(`LLM did not return tool_use for ${toolName}`);
   }
 
   async function completeTool({ system, user, tool, maxTokens = 4096 }) {
