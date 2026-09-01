@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["pattern", "content"],
+  "properties": {
+    "pattern": {
+      "type": "string",
+      "minLength": 1,
+      "description": "One short sentence describing the observed slot pattern (not an image-gen prompt)"
+    },
+    "content": {
+      "type": "string",
+      "minLength": 1,
+      "description": "What belongs in the slot; for text-bearing slots list facts/sections from evidence"
+    }
+  }
+}

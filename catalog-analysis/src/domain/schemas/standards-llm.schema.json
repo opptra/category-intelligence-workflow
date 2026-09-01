@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["title", "keyword_map", "bullet_topics", "bullet_framing_pattern"],
+  "required": ["title", "item_highlights", "keyword_map", "bullet_topics", "bullet_framing_pattern"],
   "properties": {
     "title": {
       "type": "object",
@@ -12,7 +12,7 @@
         "template": {
           "type": "string",
           "minLength": 1,
-          "description": "Reusable title pattern with slots, e.g. Brand + Product Type + Material + Size + Pack"
+          "description": "Reusable title pattern that fits Amazon's 75-character title limit"
         },
         "required_tokens": {
           "type": "array",
@@ -24,7 +24,24 @@
           "type": "array",
           "items": { "type": "string" },
           "minItems": 1,
-          "description": "Example mobile-truncated title prefixes (first ~75 chars)"
+          "description": "Example titles already within 75 characters"
+        }
+      }
+    },
+    "item_highlights": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["template"],
+      "properties": {
+        "template": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Pattern for the 125-character searchable Item Highlights field under the title"
+        },
+        "examples": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Example highlight lines within 125 characters"
         }
       }
     },

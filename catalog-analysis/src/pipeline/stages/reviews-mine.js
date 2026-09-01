@@ -66,11 +66,9 @@ Sampled reviews by rating (${sampled.length} total):
 ${compactJson(reviewsByRating)}
 
 Rules:
-- signals: short buyer phrases with sentiment (praise, complaint, objection, neutral), relevance (high, medium, low), and approximate mention_count from the sample
-- include complaints and objections, not only praise
-- themes (optional): group recurring themes into praise, complaints, objections arrays
-- do not include reviewer names, ASINs, or review IDs in output
-- stay catalog-level for this corpus only (${corpusLabel})`
+- Include complaints and objections, not only praise
+- Stay catalog-level for this corpus only (${corpusLabel})
+- Do not include reviewer names, ASINs, or review IDs`
   });
 
   validateMinedSignals(result.signals, corpusLabel);

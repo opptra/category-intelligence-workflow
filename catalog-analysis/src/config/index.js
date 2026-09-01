@@ -22,24 +22,44 @@ function parseArgs(argv) {
   return args;
 }
 
+function resolveLlmSettings() {
+  const llmProvider = (process.env.LLM_PROVIDER || 'openrouter').toLowerCase();
+
+  if (llmProvider === 'anthropic') {
+    return {
+      llmProvider,
+      model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5',
+      apiKey: process.env.ANTHROPIC_API_KEY || '',
+      openRouterSiteUrl: '',
+      openRouterAppName: ''
+    };
+  }
+
+  return {
+    llmProvider: 'openrouter',
+    model: process.env.OPENROUTER_MODEL || 'anthropic/claude-sonnet-4.5',
+    apiKey: process.env.OPENROUTER_API_KEY || '',
+    openRouterSiteUrl: process.env.OPENROUTER_SITE_URL || '',
+    openRouterAppName: process.env.OPENROUTER_APP_NAME || 'scrapper-agent-workflow'
+  };
+}
+
 function buildAnalysisConfig(overrides = {}) {
-  const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514';
+  const llm = resolveLlmSettings();
 
   return {
     packageRoot: PACKAGE_ROOT,
     cacheDir: path.join(PACKAGE_ROOT, '.cache'),
-    model,
-    apiKey: process.env.ANTHROPIC_API_KEY || '',
+    ...llm,
     reviewSamplePerStar: 30,
     maxNegativeReviews: 80,
     maxPositiveReviews: 40,
-    montageCellSize: 512,
-    montageMaxCells: 12,
-    aplusCellMaxWidth: 800,
-    aplusCellMaxHeight: 360,
-    aplusMaxCells: 10,
-    visionConcurrency: 6,
+    visionImageMaxSide: 1400,
+    visionJpegQuality: 85,
+    visionConcurrency: 8,
+    downloadConcurrency: 20,
     visionMaxTokens: 20000,
+    marketplace: process.env.MARKETPLACE || 'IN',
     refresh: false,
     ...overrides
   };

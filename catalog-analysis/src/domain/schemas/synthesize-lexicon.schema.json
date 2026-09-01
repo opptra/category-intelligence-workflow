@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["category_lexicon"],
+  "properties": {
+    "category_lexicon": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observations", "terms"],
+      "properties": {
+        "observations": {
+          "type": "string",
+          "minLength": 1,
+          "description": "How leaders distribute seller vocabulary across title, bullets, A+, specs"
+        },
+        "terms": {
+          "type": "array",
+          "minItems": 20,
+          "maxItems": 60,
+          "description": "Seller/search terms from competitor/leader listings only; aim for ~30–50 when the corpus supports it",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["term", "relevance"],
+            "properties": {
+              "term": { "type": "string", "minLength": 1 },
+              "relevance": {
+                "type": "string",
+                "enum": ["high", "medium", "low"]
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
