@@ -17,9 +17,78 @@ function requirePositiveInt(value, label, fallback) {
   return n;
 }
 
+function writeJson(filePath, data, label) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+  console.log(`Saved ${label}: ${filePath}`);
+  return filePath;
+}
+
+function categoryFromScrape(scrapeResult) {
+  return scrapeResult?.top_sellers?.category
+    || scrapeResult?.our_products?.category
+    || 'category';
+}
+
+function loadScrapeFile(scrapeFile) {
+  const scrapePath = path.resolve(scrapeFile);
+  if (!fs.existsSync(scrapePath)) {
+    throw new Error(`Scrape file not found: ${scrapePath}`);
+  }
+
+  const scrapeResult = JSON.parse(fs.readFileSync(scrapePath, 'utf-8'));
+  if (!scrapeResult?.our_products || !scrapeResult?.top_sellers) {
+    throw new Error('--scrape-file must contain { our_products, top_sellers }');
+  }
+
+  return { scrapeResult, scrapePath };
+}
+
+async function scrapeCatalog({
+  ourProductUrls,
+  categoryUrl,
+  topN,
+  outputDir,
+  cookiesPath,
+  headless,
+  reviewsPerStar,
+  maxReviews,
+  includeReviews,
+  concurrency
+}) {
+  let slug = 'category';
+
+  const scrapeResult = await fetchCatalogData({
+    ourProductUrls,
+    categoryUrl: categoryUrl.trim(),
+    topN,
+    cookiesPath,
+    headless,
+    reviewsPerStar,
+    maxReviews,
+    includeReviews,
+    concurrency,
+    onCheckpoint: async (step, payload) => {
+      const category = payload.category || slug;
+      slug = slugifyCategory(category) || slug;
+      writeJson(path.join(outputDir, `${slug}-${step}.json`), payload, step);
+    }
+  });
+
+  slug = slugifyCategory(categoryFromScrape(scrapeResult)) || slug;
+  const scrapePath = writeJson(
+    path.join(outputDir, `${slug}-scrape.json`),
+    scrapeResult,
+    'combined scrape'
+  );
+
+  return { scrapeResult, scrapePath, slug };
+}
+
 async function runCatalogPipeline({
   ourProductUrls,
   categoryUrl,
+  scrapeFile,
   topN = 10,
   outputDir = OUTPUT_DIR,
   cookiesPath,
@@ -29,46 +98,56 @@ async function runCatalogPipeline({
   includeReviews,
   concurrency
 } = {}) {
-  if (!categoryUrl || typeof categoryUrl !== 'string' || !categoryUrl.trim()) {
-    throw new Error('categoryUrl is required');
+  fs.mkdirSync(outputDir, { recursive: true });
+
+  let scrapeResult;
+  let scrapePath;
+  let slug;
+
+  if (scrapeFile) {
+    console.log('='.repeat(60));
+    console.log('ORCHESTRATOR — LOAD SAVED SCRAPE');
+    console.log('='.repeat(60));
+    ({ scrapeResult, scrapePath } = loadScrapeFile(scrapeFile));
+    slug = slugifyCategory(categoryFromScrape(scrapeResult)) || 'category';
+    console.log(`Loaded scrape: ${scrapePath}`);
+  } else {
+    if (!categoryUrl || typeof categoryUrl !== 'string' || !categoryUrl.trim()) {
+      throw new Error('categoryUrl is required');
+    }
+    if (!Array.isArray(ourProductUrls) || ourProductUrls.length === 0) {
+      throw new Error('ourProductUrls must be a non-empty array');
+    }
+
+    console.log('='.repeat(60));
+    console.log('ORCHESTRATOR — SCRAPE');
+    console.log('='.repeat(60));
+
+    ({ scrapeResult, scrapePath, slug } = await scrapeCatalog({
+      ourProductUrls,
+      categoryUrl,
+      topN: requirePositiveInt(topN, 'topN', 10),
+      outputDir,
+      cookiesPath,
+      headless,
+      reviewsPerStar,
+      maxReviews,
+      includeReviews,
+      concurrency
+    }));
   }
-  if (!Array.isArray(ourProductUrls) || ourProductUrls.length === 0) {
-    throw new Error('ourProductUrls must be a non-empty array');
-  }
-
-  const resolvedTopN = requirePositiveInt(topN, 'topN', 10);
-
-  console.log('='.repeat(60));
-  console.log('ORCHESTRATOR — SCRAPE');
-  console.log('='.repeat(60));
-
-  const scrapeResult = await fetchCatalogData({
-    ourProductUrls,
-    categoryUrl: categoryUrl.trim(),
-    topN: resolvedTopN,
-    cookiesPath,
-    headless,
-    reviewsPerStar,
-    maxReviews,
-    includeReviews,
-    concurrency
-  });
 
   console.log('\n' + '='.repeat(60));
   console.log('ORCHESTRATOR — ANALYZE');
   console.log('='.repeat(60));
 
   const { report } = await runAnalysis({ input: scrapeResult });
-
-  const slug = slugifyCategory(report.meta.category);
-  fs.mkdirSync(outputDir, { recursive: true });
-  const outputPath = path.join(outputDir, `${slug}-analysis.json`);
-  const scrapePath = path.join(outputDir, `${slug}-scrape.json`);
-  fs.writeFileSync(outputPath, JSON.stringify(report, null, 2), 'utf-8');
-  fs.writeFileSync(scrapePath, JSON.stringify(scrapeResult, null, 2), 'utf-8');
-
-  console.log(`\nWrote analysis report to ${outputPath}`);
-  console.log(`Wrote scrape data to ${scrapePath}`);
+  slug = slugifyCategory(report.meta.category) || slug;
+  const outputPath = writeJson(
+    path.join(outputDir, `${slug}-analysis.json`),
+    report,
+    'analysis report'
+  );
 
   return { report, outputPath, scrapePath, scrapeResult };
 }

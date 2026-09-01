@@ -7,6 +7,7 @@ function parseArgs(argv) {
   const options = {
     categoryUrl: null,
     ourProductUrls: [],
+    scrapeFile: null,
     topN: 10,
     cookiesPath: null,
     headless: 'new',
@@ -21,6 +22,8 @@ function parseArgs(argv) {
       options.categoryUrl = argv[++i];
     } else if (arg === '--url' && argv[i + 1]) {
       options.ourProductUrls.push(argv[++i]);
+    } else if (arg === '--scrape-file' && argv[i + 1]) {
+      options.scrapeFile = path.resolve(argv[++i]);
     } else if (arg === '--top-n' && argv[i + 1]) {
       options.topN = parseInt(argv[++i], 10);
     } else if (arg === '--cookies' && argv[i + 1]) {
@@ -44,10 +47,14 @@ function parseArgs(argv) {
 function printHelp() {
   console.log(`Usage:
   node src/cli.js --category-url <bestsellers-url> --url <product-url> [--url ...] [options]
+  node src/cli.js --scrape-file <path-to-scrape.json>
 
-Required:
+Required (scrape + analyze):
   --category-url <url>   Amazon bestsellers category URL
   --url <url>            Our product URL (repeatable)
+
+Or skip scrape:
+  --scrape-file <path>   Analyze a previously saved scrape JSON
 
 Optional:
   --top-n <n>            Number of top sellers to fetch (default: 10)
@@ -66,11 +73,13 @@ async function main() {
     return;
   }
 
-  if (!options.categoryUrl) {
-    throw new Error('--category-url is required');
-  }
-  if (options.ourProductUrls.length === 0) {
-    throw new Error('At least one --url is required');
+  if (!options.scrapeFile) {
+    if (!options.categoryUrl) {
+      throw new Error('--category-url is required (or pass --scrape-file to skip scrape)');
+    }
+    if (options.ourProductUrls.length === 0) {
+      throw new Error('At least one --url is required (or pass --scrape-file to skip scrape)');
+    }
   }
 
   const { outputPath, scrapePath, report } = await runCatalogPipeline(options);
