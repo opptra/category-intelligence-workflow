@@ -1,3 +1,4 @@
+const { competitiveSetNoun } = require('../../domain/corpus-wording');
 const { sampleReviewsForMining } = require('./metrics');
 const { requireNonEmptyArray } = require('../../utils/assert');
 const { groupReviewsByRating, compactJson } = require('../../utils/prompt-data');
@@ -83,24 +84,30 @@ Rules:
 /**
  * Mine leaders and our catalog reviews separately (no pooled corpus).
  */
-async function mineVoiceOfCustomer({ llm, config, competitors, ours, category }) {
+async function mineVoiceOfCustomer({ llm, config, competitors, ours, category, corpusSource }) {
   const leaders = await mineCorpusReviews({
     llm,
     config,
     products: competitors,
     category,
-    corpusLabel: 'category leaders / top sellers'
+    corpusLabel: competitiveSetNoun(corpusSource)
   });
 
-  const oursMined = await mineCorpusReviews({
-    llm,
-    config,
-    products: ours,
-    category,
-    corpusLabel: 'our catalog'
-  });
+  const oursMined = (ours && ours.length)
+    ? await mineCorpusReviews({
+      llm,
+      config,
+      products: ours,
+      category,
+      corpusLabel: 'our catalog'
+    })
+    : {
+      signals: [],
+      themes: { praise: [], complaints: [], objections: [] },
+      sampled_count: 0
+    };
 
-  requireNonEmptyArray(leaders.signals, 'leader voice-of-customer signals');
+  requireNonEmptyArray(leaders.signals, 'competitive-set voice-of-customer signals');
 
   return {
     leaders,

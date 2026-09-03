@@ -19,3 +19,6 @@ catalog-analysis/.cache/
 
 # Scraped data (copy into output/ manually or via scrapers)
 output/*.json
+
+pipeline-course/*
+output/*

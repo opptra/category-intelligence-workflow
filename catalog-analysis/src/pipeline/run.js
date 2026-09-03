@@ -56,13 +56,14 @@ async function runAnalysis(options = {}) {
     checkpoint,
     's3_voc',
     async () => {
-      log('S3', 'Mining voice of customer (leaders vs ours)...');
+      log('S3', ours.length ? 'Mining voice of customer (competitive set vs ours)...' : 'Mining voice of customer (competitive set only)...');
       return mineVoiceOfCustomer({
         llm,
         config,
         competitors,
         ours,
-        category: meta.category
+        category: meta.category,
+        corpusSource: meta.corpus_source
       });
     },
     { log }
@@ -72,7 +73,7 @@ async function runAnalysis(options = {}) {
     checkpoint,
     's4_visual',
     async () => {
-      log('S4', 'Analyzing galleries (leaders + ours)...');
+      log('S4', ours.length ? 'Analyzing galleries (competitive set + ours)...' : 'Analyzing galleries (competitive set)...');
       return buildVisualStandard({
         llm,
         config,
@@ -100,7 +101,7 @@ async function runAnalysis(options = {}) {
     checkpoint,
     's4b_gaps',
     async () => {
-      log('S4b', 'Computing catalog-level gaps vs leaders...');
+      log('S4b', ours.length ? 'Computing catalog-level gaps vs competitive set...' : 'Skipping catalog gaps (no own listings)...');
       return buildCatalogGaps({
         competitorMetrics,
         ourMetrics,
@@ -143,6 +144,7 @@ async function runAnalysis(options = {}) {
         visualStandard,
         competitorMetrics,
         catalogGaps,
+        corpusSource: meta.corpus_source,
         log,
         checkpoint
       });

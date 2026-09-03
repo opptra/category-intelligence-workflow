@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { fetchCatalogData } = require('amazon-scrapper');
+const { fetchCatalogData, fetchCompetitiveSetData, parseLinksFile } = require('amazon-scrapper');
 const { runAnalysis, slugifyCategory } = require('catalog-analysis');
 const {
   createOrLoadJob,
@@ -27,6 +27,16 @@ function requirePositiveInt(value, label, fallback) {
   return n;
 }
 
+function inferCorpusSource(scrapeResult) {
+  if (scrapeResult?.corpus_source === 'user_selected' || scrapeResult?.corpus_source === 'bestsellers') {
+    return scrapeResult.corpus_source;
+  }
+  if (scrapeResult?.top_sellers?.source === 'user-selected') {
+    return 'user_selected';
+  }
+  return 'bestsellers';
+}
+
 function loadScrapeEnvelope(scrapeFile) {
   const scrapePath = path.resolve(scrapeFile);
   if (!fs.existsSync(scrapePath)) {
@@ -36,12 +46,54 @@ function loadScrapeEnvelope(scrapeFile) {
   if (!scrapeResult?.our_products || !scrapeResult?.top_sellers) {
     throw new Error('--scrape-file must contain { our_products, top_sellers }');
   }
+  if (!Array.isArray(scrapeResult.our_products.products)) {
+    scrapeResult.our_products.products = [];
+  }
+  scrapeResult.corpus_source = inferCorpusSource(scrapeResult);
   return scrapeResult;
+}
+
+async function scrapeFromLinksFile({
+  linksFile,
+  ourProductUrls,
+  categoryName,
+  maxProducts,
+  cookiesPath,
+  headless,
+  reviewsPerStar,
+  maxReviews,
+  includeReviews,
+  concurrency,
+  onCheckpoint
+}) {
+  const parsed = parseLinksFile(linksFile, { maxProducts });
+  if (parsed.skipped) {
+    console.log(`[scrape] Skipped ${parsed.skipped} invalid or duplicate URL(s)`);
+  }
+  if (parsed.truncated) {
+    console.log(`[scrape] Capped competitive set at ${parsed.entries.length} (dropped ${parsed.truncated})`);
+  }
+
+  return fetchCompetitiveSetData({
+    competitorUrls: parsed.entries,
+    ourProductUrls: ourProductUrls || [],
+    categoryName,
+    cookiesPath,
+    headless,
+    reviewsPerStar,
+    maxReviews,
+    includeReviews,
+    concurrency,
+    onCheckpoint
+  });
 }
 
 async function runCatalogPipeline({
   ourProductUrls,
   categoryUrl,
+  linksFile,
+  categoryName,
+  maxProducts = 20,
   scrapeFile,
   topN = 10,
   outputDir = OUTPUT_DIR,
@@ -58,7 +110,11 @@ async function runCatalogPipeline({
     jobId,
     seed: {
       category_url: categoryUrl || null,
+      links_file: linksFile || null,
+      category_name: categoryName || null,
+      max_products: maxProducts,
       our_product_urls: ourProductUrls || [],
+      corpus_source: linksFile ? 'user_selected' : (categoryUrl ? 'bestsellers' : null),
       top_n: topN
     }
   });
@@ -75,10 +131,13 @@ async function runCatalogPipeline({
   console.log('='.repeat(60));
 
   const resolvedCategoryUrl = categoryUrl || meta.category_url;
+  const resolvedLinksFile = linksFile || meta.links_file;
+  const resolvedCategoryName = categoryName || meta.category_name || null;
   const resolvedOurUrls = (ourProductUrls && ourProductUrls.length)
     ? ourProductUrls
     : (meta.our_product_urls || []);
   const resolvedTopN = requirePositiveInt(topN || meta.top_n, 'topN', 10);
+  const resolvedMaxProducts = requirePositiveInt(maxProducts || meta.max_products, 'maxProducts', 20);
 
   let scrapeResult;
   let currentStage = 'scrape';
@@ -87,22 +146,9 @@ async function runCatalogPipeline({
     if (hasStage(paths, 'scrape')) {
       console.log('\n[scrape] Resuming from checkpoint');
       scrapeResult = loadStage(paths, 'scrape');
+      scrapeResult.corpus_source = inferCorpusSource(scrapeResult);
     } else {
-      if (!resolvedCategoryUrl || typeof resolvedCategoryUrl !== 'string' || !resolvedCategoryUrl.trim()) {
-        throw new Error('categoryUrl is required (or pass --scrape-file / --job-id with saved scrape data)');
-      }
-      if (!Array.isArray(resolvedOurUrls) || resolvedOurUrls.length === 0) {
-        throw new Error('ourProductUrls must be a non-empty array');
-      }
-
-      console.log('\n' + '='.repeat(60));
-      console.log('ORCHESTRATOR — SCRAPE');
-      console.log('='.repeat(60));
-
-      scrapeResult = await fetchCatalogData({
-        ourProductUrls: resolvedOurUrls,
-        categoryUrl: resolvedCategoryUrl.trim(),
-        topN: resolvedTopN,
+      const scrapeOpts = {
         cookiesPath,
         headless,
         reviewsPerStar,
@@ -113,13 +159,49 @@ async function runCatalogPipeline({
           saveStage(paths, step, payload);
           console.log(`[scrape] checkpoint saved: ${step}`);
         }
-      });
+      };
+
+      console.log('\n' + '='.repeat(60));
+      console.log('ORCHESTRATOR — SCRAPE');
+      console.log('='.repeat(60));
+
+      if (resolvedLinksFile) {
+        scrapeResult = await scrapeFromLinksFile({
+          linksFile: resolvedLinksFile,
+          ourProductUrls: resolvedOurUrls,
+          categoryName: resolvedCategoryName,
+          maxProducts: resolvedMaxProducts,
+          ...scrapeOpts
+        });
+        updateJobMeta(paths, {
+          links_file: resolvedLinksFile,
+          category_name: resolvedCategoryName,
+          our_product_urls: resolvedOurUrls,
+          max_products: resolvedMaxProducts,
+          corpus_source: 'user_selected'
+        });
+      } else {
+        if (!resolvedCategoryUrl || typeof resolvedCategoryUrl !== 'string' || !resolvedCategoryUrl.trim()) {
+          throw new Error('categoryUrl is required (or pass --links-file / --scrape-file / --job-id with saved scrape data)');
+        }
+        if (!Array.isArray(resolvedOurUrls) || resolvedOurUrls.length === 0) {
+          throw new Error('ourProductUrls must be a non-empty array when using --category-url');
+        }
+
+        scrapeResult = await fetchCatalogData({
+          ourProductUrls: resolvedOurUrls,
+          categoryUrl: resolvedCategoryUrl.trim(),
+          topN: resolvedTopN,
+          ...scrapeOpts
+        });
+        updateJobMeta(paths, {
+          category_url: resolvedCategoryUrl.trim(),
+          our_product_urls: resolvedOurUrls,
+          top_n: resolvedTopN,
+          corpus_source: 'bestsellers'
+        });
+      }
       saveStage(paths, 'scrape', scrapeResult);
-      updateJobMeta(paths, {
-        category_url: resolvedCategoryUrl.trim(),
-        our_product_urls: resolvedOurUrls,
-        top_n: resolvedTopN
-      });
     }
 
     console.log('\n' + '='.repeat(60));
@@ -163,4 +245,4 @@ async function runCatalogPipeline({
   }
 }
 
-module.exports = { runCatalogPipeline, OUTPUT_DIR };
+module.exports = { runCatalogPipeline, OUTPUT_DIR, inferCorpusSource };

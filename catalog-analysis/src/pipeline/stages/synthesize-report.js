@@ -10,10 +10,17 @@ const {
   buildSynthesisTopicsResearch,
   compactJson
 } = require('../../utils/prompt-data');
+const {
+  summarySystemPrompt,
+  summaryUserRules,
+  vocUserRules,
+  topicActionRule,
+  visualSurfaceLabel
+} = require('../../domain/corpus-wording');
 
 const SYNTHESIZE_SUMMARY_TOOL = toolDefinition(
   'synthesize-summary',
-  'Category intelligence summary: how top sellers win'
+  'Category intelligence summary from a competitive set'
 );
 const SYNTHESIZE_LEXICON_TOOL = toolDefinition(
   'synthesize-lexicon',
@@ -109,6 +116,7 @@ function validateTopicBatch(topics, expectedNames, batchLabel = 'topics') {
 function researchForSummary(research) {
   return {
     category: research.category,
+    corpus_source: research.corpus_source,
     n_leaders: research.n_leaders,
     n_ours: research.n_ours,
     metrics: research.metrics,
@@ -162,6 +170,7 @@ function researchForLexicon(research) {
 function researchForVoc(research) {
   return {
     category: research.category,
+    corpus_source: research.corpus_source,
     n_leaders: research.n_leaders,
     n_ours: research.n_ours,
     voice: research.voice,
@@ -173,18 +182,17 @@ function researchForVoc(research) {
 
 async function synthesizeSummary({ llm, category, research, log }) {
   if (log) log('S5a', 'Writing category summary...');
+  const nOurs = research.n_ours || 0;
+  const corpusSource = research.corpus_source;
   const result = await llm.completeTool({
-    system: 'You write a concise Amazon category intelligence summary focused on how top sellers win.',
+    system: summarySystemPrompt(corpusSource),
     tool: SYNTHESIZE_SUMMARY_TOOL,
     user: `Category: ${category}
 
 Research:
 ${compactJson(researchForSummary(research))}
 
-Write a category summary from the research.
-- Primary: how top sellers win (patterns, vocabulary, buyer expectations)
-- Secondary: catalog-level gaps vs that bar when supported
-- No ASINs, no framework IDs`,
+${summaryUserRules(corpusSource, nOurs)}`,
     maxTokens: 4096
   });
 
@@ -214,11 +222,11 @@ async function synthesizeLexicon({ llm, category, research, log }) {
 Research:
 ${compactJson(researchForLexicon(research))}
 
-Build the category lexicon from competitor/leader listings only.
+Build the category lexicon from competitor listings only.
 
 Rules:
-- category_lexicon.observations: required non-empty paragraph on how leaders use seller vocabulary across title, bullets, highlights, A+, specs (write this BEFORE terms)
-- category_lexicon.terms: ~30–50 seller/search terms from competitor/leader listings only; classify each as high, medium, or low relevance
+- category_lexicon.observations: required non-empty paragraph on how ${research.corpus_source === 'user_selected' ? 'this competitive set' : 'leaders'} use seller vocabulary across title, bullets, highlights, A+, specs (write this BEFORE terms)
+- category_lexicon.terms: ~30–50 seller/search terms from competitor listings only; classify each as high, medium, or low relevance
 - No ASINs`,
     maxTokens: 8192
   });
@@ -255,9 +263,7 @@ ${compactJson(researchForVoc(research))}
 Synthesize one unified voice-of-customer section from the research.
 
 Rules:
-- voice_of_customer.observations: required non-empty narrative merging leader/our mines (write this BEFORE signals; no leaders/ours buckets)
-- voice_of_customer.signals: buyer phrases with sentiment (praise, complaint, objection, neutral), relevance, and approximate mention_count; include complaints and objections, not only praise; prefer ~25–40 when the sample supports it
-- No ASINs, no source labels`,
+${vocUserRules(research.n_ours || 0)}`,
     maxTokens: 8192
   });
 
@@ -292,11 +298,15 @@ async function synthesizeCore({ llm, category, research, log }) {
   };
 }
 
-function visualObservationRules(topicName) {
+function visualObservationRules(topicName, { corpusSource, nOurs = 0 } = {}) {
+  const surface = visualSurfaceLabel(corpusSource);
   if (topicName === 'gallery_images') {
-    return `- Topic gallery_images: use ONLY vision.pdp_gallery (+ ours_vs_leaders). Never cite A+ modules or A+ humans here.
+    const oursNote = nOurs > 0
+      ? ' (+ ours_vs_leaders when own listings were analyzed)'
+      : '';
+    return `- Topic gallery_images: use ONLY vision.pdp_gallery${oursNote}. Never cite A+ modules or A+ humans here.
 - Cite observed numbers: n_analyzed, median_image_count, and role/signal prevalence (count and % of PDP galleries analyzed).
-- State the surface explicitly ("leader PDP galleries…").
+- State the surface explicitly ("${surface} PDP galleries…").
 - Recommending quantities is allowed (e.g. median ~10 images). Do NOT prescribe per-image scripts ("image 1 should be X"). Slot plans live in report.image_plan, not in this topic.
 - Do not restate image_plan slot briefs.
 - If vision.pdp_gallery.signals.human_presence.prevalence is 0 (or near 0), do NOT claim or recommend human/person/model images for PDP galleries.`;
@@ -305,7 +315,7 @@ function visualObservationRules(topicName) {
   if (topicName === 'aplus') {
     return `- Topic aplus: use ONLY vision.aplus. Never cite PDP gallery cells here.
 - Cite observed numbers: n_analyzed, median_image_count/modules, and role/signal prevalence among A+ listings analyzed.
-- State the surface explicitly ("leader A+ modules…").
+- State the surface explicitly ("${surface} A+ modules…").
 - Recommending module quantities is allowed. Do NOT prescribe per-module scripts ("module 1 should be X"). Slot plans live in report.image_plan, not in this topic.
 - Do not restate image_plan slot briefs.
 - Only claim human/person patterns in A+ when vision.aplus.signals.human_presence supports it.`;
@@ -380,11 +390,12 @@ Core already written:
 ${compactJson({ summary: core.summary, lexicon: core.category_lexicon.observations })}`;
 
   const topicList = topicNames.join(', ');
+  const nOurs = research.n_ours || 0;
   const batchInstructions = `Required topic names (each exactly once): ${topicList}
 
 Rules:
 - observations are research findings in prose
-- actions are category-wide, not our-SKU specific
+${topicActionRule(nOurs)}
 - topics.keywords should reference category_lexicon for vocabulary, not duplicate the full term list
 - No framework IDs or ASINs
 ${extraRules}`;
@@ -445,6 +456,7 @@ async function synthesizeReport({
   visualStandard,
   competitorMetrics,
   catalogGaps,
+  corpusSource,
   log,
   checkpoint
 }) {
@@ -457,7 +469,8 @@ async function synthesizeReport({
     voiceOfCustomer,
     visualStandard,
     metricsContext,
-    catalogGaps
+    catalogGaps,
+    corpusSource
   });
 
   const core = await checkpointedCore({ llm, category, research, log, checkpoint });

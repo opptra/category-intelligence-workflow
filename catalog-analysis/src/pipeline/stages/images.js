@@ -296,18 +296,22 @@ async function analyzeProductGalleries({
 /**
  * Aggregate our PDP galleries vs leader-required roles (catalog-level, no ASINs).
  */
+function emptyOursVsLeaders() {
+  return {
+    galleries_analyzed: 0,
+    role_rates: [],
+    missing_vs_leader_required: [],
+    median_image_count: null,
+    signals: []
+  };
+}
+
 function aggregateOursVsLeaders(ourGalleryResults, requiredRoles, taxonomy = null) {
   const ourSummary = buildTrackSummary(ourGalleryResults, { track: 'pdp', taxonomy });
   const n = ourSummary.n_analyzed;
 
   if (!n) {
-    return {
-      galleries_analyzed: 0,
-      role_rates: [],
-      missing_vs_leader_required: [...(requiredRoles || [])],
-      median_image_count: null,
-      signals: ourSummary.signals
-    };
+    return emptyOursVsLeaders();
   }
 
   return {
@@ -415,24 +419,28 @@ async function buildVisualStandard({ llm, config, competitors, ours, category, l
       })
   ]);
 
-  const ourGalleryInternal = await analyzeProductGalleries({
-    llm,
-    config,
-    products: ours,
-    galleryType: 'product',
-    label: 'our PDP gallery',
-    log
-  });
+  const ourGalleryInternal = (ours && ours.length)
+    ? await analyzeProductGalleries({
+      llm,
+      config,
+      products: ours,
+      galleryType: 'product',
+      label: 'our PDP gallery',
+      log
+    })
+    : [];
 
   const aggregated = aggregateVisualStandard(competitorGallery, competitorAplus, {
     pdpTaxonomy,
     aplusTaxonomy
   });
-  const ours_vs_leaders = aggregateOursVsLeaders(
-    ourGalleryInternal,
-    aggregated.gallery_standard.required_roles,
-    pdpTaxonomy
-  );
+  const ours_vs_leaders = ourGalleryInternal.length
+    ? aggregateOursVsLeaders(
+      ourGalleryInternal,
+      aggregated.gallery_standard.required_roles,
+      pdpTaxonomy
+    )
+    : emptyOursVsLeaders();
 
   return {
     ...aggregated,
@@ -449,6 +457,7 @@ module.exports = {
   buildVisualStandard,
   aggregateOursVsLeaders,
   aggregateVisualStandard,
+  emptyOursVsLeaders,
   trackFromGalleryType,
   buildGalleryVisionPrompt,
   buildAplusVisionPrompt,

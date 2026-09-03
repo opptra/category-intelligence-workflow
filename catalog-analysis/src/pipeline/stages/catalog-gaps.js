@@ -164,6 +164,28 @@ function buildCatalogGaps({
   visualStandard
 }) {
   const leaderNorms = aggregateNorms(competitorMetrics);
+
+  if (!ours || ours.length === 0) {
+    return {
+      applicable: false,
+      reason: 'no_own_listings',
+      summary: 'No own listings were provided; gaps vs a baseline were not computed.',
+      metric_deltas: [],
+      missing_visual_roles: [],
+      missing_spec_keys: [],
+      missing_lexicon_terms: [],
+      our_norms: null,
+      leader_norms: {
+        title_length: leaderNorms.title_length,
+        bullet_count: leaderNorms.bullet_count,
+        image_count: leaderNorms.image_count,
+        aplus_presence_rate: leaderNorms.aplus_presence_rate,
+        rating: leaderNorms.rating,
+        review_count: leaderNorms.review_count,
+        price_inr: leaderNorms.price_inr
+      }
+    };
+  }
   const ourNorms = aggregateNorms(ourMetrics);
   const ourCopy = buildOurCombinedCopy(ours);
   const ourFillRates = buildOurSpecFillRates(ours);
@@ -176,6 +198,8 @@ function buildCatalogGaps({
   const missing_visual_roles = oursVisual.missing_vs_leader_required || [];
 
   const catalog_gaps = {
+    applicable: true,
+    reason: null,
     summary: '',
     metric_deltas,
     missing_visual_roles,

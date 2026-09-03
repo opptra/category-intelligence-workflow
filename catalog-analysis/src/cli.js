@@ -11,9 +11,19 @@ function readEnvelope(filePath) {
 
 async function main() {
   const config = loadConfig();
+  const top_sellers = readEnvelope(config.competitors);
+  const our_products = config.ours
+    ? readEnvelope(config.ours)
+    : {
+      source: 'our-products',
+      category: top_sellers.category,
+      domain: top_sellers.domain,
+      products: []
+    };
   const input = {
-    top_sellers: readEnvelope(config.competitors),
-    our_products: readEnvelope(config.ours)
+    corpus_source: top_sellers.source === 'user-selected' ? 'user_selected' : 'bestsellers',
+    top_sellers,
+    our_products
   };
 
   const { report } = await runAnalysis({ ...config, input });
