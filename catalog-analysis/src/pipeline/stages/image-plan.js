@@ -12,12 +12,15 @@ const COMPOSITION_TOOL = strictToolDefinition(
 
 const BRIEF_TOOL = toolDefinition(
   'image-plan-brief',
-  'Write pattern and content brief for one image slot from that slot\'s evidence only'
+  'Write pattern and a generic theme-family content brief for one image slot'
 );
 
 const MAX_PATTERN = 120;
 const MAX_CONTENT = 220;
+const MAX_FEATURES = 8;
 const PROMPT_PREFIX_RE = /^(generate|create|make|produce|render|draw|design an? image|midjourney|dall[- ]?e)\b[:\s-]*/i;
+const MEASUREMENT_RE = /\b\d+(?:[.,]\d+)?(?:\s*[x×*]\s*\d+(?:[.,]\d+)?){1,2}(?:\s*(?:cm|mm|inch(?:es)?|in|ft))?\b|\b\d+(?:[.,]\d+)?\s*(?:cm|mm|inch(?:es)?|ft|kg|g|lb|oz)\b/gi;
+const QUOTED_SLOGAN_RE = /[“”"'‘’][^“”"'‘’]{1,80}[“”"'‘’]/g;
 
 function sanitizeBrief(text, softMax) {
   let cleaned = String(text || '').replace(/\s+/g, ' ').trim();
@@ -29,6 +32,123 @@ function sanitizeBrief(text, softMax) {
   return cleaned;
 }
 
+function stripSpecifics(text) {
+  return String(text || '')
+    .replace(QUOTED_SLOGAN_RE, ' ')
+    .replace(MEASUREMENT_RE, ' ')
+    .replace(/(?:[,;]\s*){2,}/g, ', ')
+    .replace(/\s+([,;:.])/g, '$1')
+    .replace(/^[,;.\s]+|[,;.\s]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isDegradedContent(text) {
+  if (!text) return true;
+  if (/(?:[,;]\s*){2,}/.test(text)) return true;
+  if (/\b(?:including|text)\s*[,:.]?\s*$/i.test(text)) return true;
+  if ((text.match(/;/g) || []).length >= 2) return true;
+  return false;
+}
+
+function fallbackContent(slot) {
+  const role = String(slot?.role || 'this role').trim();
+  const kind = String(slot?.kind || '').toLowerCase();
+  if (kind === 'infographic' || kind === 'feature_banner') {
+    return `Shows ${role} information with product feature themes such as quality and durability.`;
+  }
+  if (kind === 'hero' || kind === 'lifestyle') {
+    return `Shows the product in a typical ${role} setting.`;
+  }
+  if (kind === 'detail' || kind === 'comparison') {
+    return `Shows ${role} details at a theme level, without listing specific measurements or claims.`;
+  }
+  return `Shows typical elements of a ${role} frame.`;
+}
+
+function finalizeContent(text, slot) {
+  const raw = sanitizeBrief(text, MAX_CONTENT);
+  if (!raw) return fallbackContent(slot);
+  const cleaned = stripSpecifics(raw);
+  if (isDegradedContent(cleaned)) return fallbackContent(slot);
+  const rawNorm = raw.replace(/[.,;]+$/g, '').trim();
+  const cleanedNorm = cleaned.replace(/[.,;]+$/g, '').trim();
+  // Measurements or slogans mean the model ignored the generic-content contract.
+  if (rawNorm !== cleanedNorm) return fallbackContent(slot);
+  return cleaned;
+}
+
+function overlayCapForKind(kind, surface) {
+  const k = String(kind || '').toLowerCase();
+  if (k === 'hero') return surface === 'aplus' ? 1 : 0;
+  if (k === 'lifestyle') return 1;
+  if (k === 'comparison') return 1;
+  if (k === 'detail') return 2;
+  if (k === 'feature_banner') return surface === 'aplus' ? 5 : 3;
+  if (k === 'infographic') return 5;
+  return 3;
+}
+
+function deriveMaxCallouts({
+  kind,
+  surface,
+  textPresentRate,
+  medianFactCount,
+  featureCount
+}) {
+  const cap = overlayCapForKind(kind, surface);
+  const k = String(kind || '').toLowerCase();
+  const rate = Number.isFinite(textPresentRate) ? textPresentRate : 0;
+  const observed = Number.isFinite(medianFactCount) ? Math.max(0, Math.round(medianFactCount)) : 0;
+  const features = Number.isFinite(featureCount) ? Math.max(0, featureCount) : 0;
+
+  if (cap <= 0) return 0;
+
+  // Gallery hero/lifestyle with only a logo or headline is photo-first, not a feature grid.
+  if (surface === 'gallery' && (k === 'hero' || k === 'lifestyle') && observed <= 1) {
+    return 0;
+  }
+
+  if (rate < 0.3 && observed <= 0) return 0;
+
+  let n = Math.min(cap, observed, 8);
+  if (features > 0) n = Math.min(n, features);
+  return Math.max(0, n);
+}
+
+function normalizeFeaturePriority(raw, { photoOnly = false } = {}) {
+  if (photoOnly) return [];
+  const seen = new Set();
+  const out = [];
+  for (const item of Array.isArray(raw) ? raw : []) {
+    const text = sanitizeBrief(item, 40);
+    if (!text || text.length > 48) continue;
+    const key = text.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(text);
+    if (out.length >= MAX_FEATURES) break;
+  }
+  return out;
+}
+
+function isPhotoOnlySlot(slot, surface) {
+  const kind = String(slot.kind || '').toLowerCase();
+  const medianFacts = Number(slot._median_fact_count) || 0;
+  const rate = Number(slot._text_present_rate) || 0;
+  if (overlayCapForKind(slot.kind, surface) === 0) return true;
+  if (rate < 0.3 && medianFacts <= 0) return true;
+  if (surface === 'gallery' && (kind === 'hero' || kind === 'lifestyle') && medianFacts <= 1) {
+    return true;
+  }
+  return false;
+}
+
+function fallbackFeaturePriority(slot, { photoOnly = false } = {}) {
+  if (photoOnly) return [];
+  return normalizeFeaturePriority(slot._board_facts || []);
+}
+
 function roleEvidenceFromSummary(summary) {
   return (summary?.roles || []).map((r) => ({
     canonical: r.role,
@@ -37,6 +157,10 @@ function roleEvidenceFromSummary(summary) {
     per_listing: r.typical_per_listing,
     occurrences: r.total_cells,
     typical_position: r.typical_position,
+    text_present_rate: r.text_present_rate ?? ((r.board_facts || []).length ? 1 : 0),
+    median_fact_count: Number.isFinite(r.median_fact_count)
+      ? r.median_fact_count
+      : Math.min(5, (r.board_facts || []).length),
     content_tags: (r.content_tags || []).slice(0, 12),
     board_facts: (r.board_facts || []).slice(0, 20),
     board_layouts: (r.board_layouts || []).slice(0, 6),
@@ -110,7 +234,8 @@ async function writeSlotBrief({ llm, category, surface, slot }) {
   const response = await llm.completeTool({
     system:
       'You write a short slot brief for one Amazon listing image idea. '
-      + 'Describe the observed pattern and what belongs inside. '
+      + 'Describe the observed pattern, then name generic theme families that belong inside. '
+      + 'Never copy printed measurements, SKUs, slogans, brand names, or exact feature names. '
       + 'Never write image-generation prompts, camera settings, or Midjourney/DALL-E language.',
     tool: BRIEF_TOOL,
     user: `Category: ${category}
@@ -125,28 +250,38 @@ ${compactJson({
     evidence: slot.evidence
   })}
 
-Evidence from competitor images of this role only:
+Evidence from competitor images of this role only (scene and layout — not printed copy):
 ${compactJson({
     content_tags: slot._content_tags || [],
-    board_facts: slot._board_facts || [],
     board_layouts: slot._board_layouts || [],
     board_types: slot._board_types || []
   })}
 
 Write the slot brief from this role's competitor evidence only.
-For text boards, use the actual printed facts from evidence.`,
+content: one generic sentence naming theme families (e.g. "Shows dimensions and product features such as quality and durability."). Do not list exact sizes, materials, slogans, or feature names from listings.
+feature_priority: ranked short claim families this slot may print (e.g. "anti-slip", "easy clean"). Empty array when the slot is photo-only with no overlay.
+Do not copy long slogans, brand names, or SKU-specific numbers into feature_priority.`,
     maxTokens: 1024
   });
 
+  const photoOnly = isPhotoOnlySlot(slot, surface);
+
+  const feature_priority = normalizeFeaturePriority(response?.feature_priority, { photoOnly });
+  const features = feature_priority.length
+    ? feature_priority
+    : fallbackFeaturePriority(slot, { photoOnly });
+
   return {
     pattern: sanitizeBrief(response?.pattern || slot.role, MAX_PATTERN),
-    content: sanitizeBrief(
-      response?.content
-        || (slot._board_facts?.length
-          ? slot._board_facts.slice(0, 8).join('; ')
-          : `Include elements typical of leader "${slot.role}" frames.`),
-      MAX_CONTENT
-    )
+    content: finalizeContent(response?.content, slot),
+    feature_priority: features,
+    max_callouts: deriveMaxCallouts({
+      kind: slot.kind,
+      surface,
+      textPresentRate: slot._text_present_rate,
+      medianFactCount: slot._median_fact_count,
+      featureCount: features.length
+    })
   };
 }
 
@@ -157,14 +292,19 @@ async function enrichSlotsWithBriefs({ llm, category, surface, slots }) {
     try {
       return await writeSlotBrief({ llm, category, surface, slot });
     } catch (_) {
+      const photoOnly = isPhotoOnlySlot(slot, surface);
+      const feature_priority = fallbackFeaturePriority(slot, { photoOnly });
       return {
         pattern: sanitizeBrief(slot.role, MAX_PATTERN),
-        content: sanitizeBrief(
-          slot._board_facts?.length
-            ? slot._board_facts.slice(0, 8).join('; ')
-            : `Include elements typical of leader "${slot.role}" frames.`,
-          MAX_CONTENT
-        )
+        content: fallbackContent(slot),
+        feature_priority,
+        max_callouts: deriveMaxCallouts({
+          kind: slot.kind,
+          surface,
+          textPresentRate: slot._text_present_rate,
+          medianFactCount: slot._median_fact_count,
+          featureCount: feature_priority.length
+        })
       };
     }
   });
@@ -175,13 +315,17 @@ async function enrichSlotsWithBriefs({ llm, category, surface, slots }) {
       _board_facts,
       _board_layouts,
       _board_types,
+      _text_present_rate,
+      _median_fact_count,
       ...rest
     } = slot;
     return {
       ...rest,
       order: index + 1,
       pattern: briefs[index].pattern,
-      content: briefs[index].content
+      content: briefs[index].content,
+      feature_priority: briefs[index].feature_priority || [],
+      max_callouts: briefs[index].max_callouts ?? 0
     };
   });
 }
@@ -224,7 +368,9 @@ function finalizeCompositionTrack(rawTrack, evidenceSurface, surface) {
       _content_tags: matched.content_tags || [],
       _board_facts: matched.board_facts || [],
       _board_layouts: matched.board_layouts || [],
-      _board_types: matched.board_types || []
+      _board_types: matched.board_types || [],
+      _text_present_rate: matched.text_present_rate ?? 0,
+      _median_fact_count: matched.median_fact_count ?? 0
     });
   }
 
@@ -346,5 +492,11 @@ module.exports = {
   buildImagePlan,
   buildEvidencePayload,
   finalizeCompositionTrack,
-  sanitizeBrief
+  sanitizeBrief,
+  stripSpecifics,
+  fallbackContent,
+  finalizeContent,
+  deriveMaxCallouts,
+  overlayCapForKind,
+  normalizeFeaturePriority
 };

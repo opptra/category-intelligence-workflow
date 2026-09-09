@@ -11,6 +11,7 @@ const {
   parseDimensions,
   parsePackCount
 } = require('../../utils/parsers');
+const { normalizeCorpusSource } = require('../../domain/corpus-wording');
 
 function normalizeProduct(product, { isOurs }) {
   const price = parsePriceText(product.price_text)
@@ -57,11 +58,16 @@ function normalizeProduct(product, { isOurs }) {
   };
 }
 
-function parseDataset(raw, { isOurs, label }) {
+function parseDataset(raw, { isOurs, label, allowEmpty = false }) {
   if (!raw || typeof raw !== 'object') {
     throw new Error(`Invalid ${label} dataset: expected an object`);
   }
-  requireNonEmptyArray(raw.products, `${label} products`);
+  if (!Array.isArray(raw.products)) {
+    throw new Error(`${label} products must be an array`);
+  }
+  if (!allowEmpty) {
+    requireNonEmptyArray(raw.products, `${label} products`);
+  }
   return raw.products.map((p) => normalizeProduct(p, { isOurs }));
 }
 
@@ -77,14 +83,23 @@ function loadDatasetsFromInput(input) {
   const { our_products, top_sellers } = input;
   requireNonEmptyString(top_sellers.category, 'top_sellers.category');
 
-  if (our_products.category && our_products.category !== top_sellers.category) {
+  const oursRaw = {
+    ...our_products,
+    products: Array.isArray(our_products.products) ? our_products.products : []
+  };
+
+  if (
+    oursRaw.products.length > 0
+    && oursRaw.category
+    && oursRaw.category !== top_sellers.category
+  ) {
     throw new Error(
-      `Category mismatch: our_products.category (${our_products.category}) !== top_sellers.category (${top_sellers.category})`
+      `Category mismatch: our_products.category (${oursRaw.category}) !== top_sellers.category (${top_sellers.category})`
     );
   }
 
   const competitors = parseDataset(top_sellers, { isOurs: false, label: 'top_sellers' });
-  const ours = parseDataset(our_products, { isOurs: true, label: 'our_products' });
+  const ours = parseDataset(oursRaw, { isOurs: true, label: 'our_products', allowEmpty: true });
 
   const domain = top_sellers.domain || our_products.domain;
   requireNonEmptyString(domain, 'domain');
@@ -94,7 +109,10 @@ function loadDatasetsFromInput(input) {
       category: top_sellers.category,
       domain,
       competitor_count: competitors.length,
-      our_count: ours.length
+      our_count: ours.length,
+      corpus_source: normalizeCorpusSource(input.corpus_source, {
+        topSellersSource: top_sellers.source
+      })
     },
     competitors,
     ours,

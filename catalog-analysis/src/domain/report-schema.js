@@ -6,7 +6,8 @@ const {
 } = require('../utils/assert');
 const { MAX_LEXICON_OUTPUT, MAX_SIGNALS_OUTPUT } = require('./report-normalize');
 
-const SCHEMA_VERSION = '2.4';
+const SCHEMA_VERSION = '2.5';
+const VALID_CORPUS_SOURCES = new Set(['bestsellers', 'user_selected']);
 
 const REQUIRED_TOPIC_NAMES = [
   'title',
@@ -51,6 +52,10 @@ function validateCatalogGaps(catalogGaps) {
   requireValue(catalogGaps, 'catalog_gaps');
   requireNonEmptyString(catalogGaps.summary, 'catalog_gaps.summary');
 
+  if (typeof catalogGaps.applicable !== 'boolean') {
+    throw new Error('catalog_gaps.applicable must be a boolean');
+  }
+
   for (const key of [
     'metric_deltas',
     'missing_visual_roles',
@@ -62,9 +67,21 @@ function validateCatalogGaps(catalogGaps) {
     }
   }
 
-  if (catalogGaps.metric_deltas.length < 1) {
-    throw new Error('catalog_gaps.metric_deltas must be a non-empty array');
+  if (catalogGaps.applicable) {
+    if (catalogGaps.metric_deltas.length < 1) {
+      throw new Error('catalog_gaps.metric_deltas must be a non-empty array when applicable');
+    }
+    requireValue(catalogGaps.our_norms, 'catalog_gaps.our_norms');
+  } else {
+    if (catalogGaps.metric_deltas.length !== 0) {
+      throw new Error('catalog_gaps.metric_deltas must be empty when not applicable');
+    }
+    if (catalogGaps.our_norms != null) {
+      throw new Error('catalog_gaps.our_norms must be null when not applicable');
+    }
   }
+
+  requireValue(catalogGaps.leader_norms, 'catalog_gaps.leader_norms');
 }
 
 function validateImagePlanSlot(slot, pathLabel) {
@@ -78,6 +95,15 @@ function validateImagePlanSlot(slot, pathLabel) {
   }
   if (!Number.isFinite(slot.order) || slot.order < 1) {
     throw new Error(`${pathLabel}.order must be a positive number`);
+  }
+  if (!Number.isFinite(slot.max_callouts) || slot.max_callouts < 0) {
+    throw new Error(`${pathLabel}.max_callouts must be a non-negative number`);
+  }
+  if (!Array.isArray(slot.feature_priority)) {
+    throw new Error(`${pathLabel}.feature_priority must be an array`);
+  }
+  for (const feature of slot.feature_priority) {
+    requireNonEmptyString(feature, `${pathLabel}.feature_priority[]`);
   }
   if (slot.evidence && typeof slot.evidence === 'object') {
     // evidence is optional structured metadata; no hard schema beyond object
@@ -151,19 +177,23 @@ function validateReport(report) {
     arrays: ['topics']
   });
   requireFields(report.meta, {
-    strings: ['schema_version', 'category', 'marketplace', 'generated_at']
+    strings: ['schema_version', 'category', 'marketplace', 'generated_at', 'corpus_source']
   }, 'meta');
 
   if (report.meta.schema_version !== SCHEMA_VERSION) {
     throw new Error(`Unsupported schema_version: ${report.meta.schema_version}`);
   }
 
+  if (!VALID_CORPUS_SOURCES.has(report.meta.corpus_source)) {
+    throw new Error('meta.corpus_source must be bestsellers or user_selected');
+  }
+
   if (!Number.isFinite(report.meta.competitor_count) || report.meta.competitor_count < 1) {
     throw new Error('meta.competitor_count must be a positive number');
   }
 
-  if (!Number.isFinite(report.meta.our_count) || report.meta.our_count < 1) {
-    throw new Error('meta.our_count must be a positive number');
+  if (!Number.isFinite(report.meta.our_count) || report.meta.our_count < 0) {
+    throw new Error('meta.our_count must be a non-negative number');
   }
 
   requireFields(report.category_lexicon, {

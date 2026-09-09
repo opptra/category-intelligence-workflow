@@ -21,12 +21,14 @@ function normalizeProductUrl(url) {
   return { url: cleanUrl, asin, domain };
 }
 
-function entryToItem(entry, index, category) {
+function entryToItem(entry, index, category, source = 'our-products') {
   if (!category || typeof category !== 'string' || !category.trim()) {
     throw new Error('category is required when building product list items');
   }
 
-  const url = typeof entry === 'string' ? entry : entry?.url;
+  const url = typeof entry === 'string'
+    ? entry
+    : (entry?.url || entry?.link || entry?.product_url);
   const normalized = normalizeProductUrl(url);
 
   if (!normalized) {
@@ -39,12 +41,12 @@ function entryToItem(entry, index, category) {
     url: normalized.url,
     domain: normalized.domain,
     category: (typeof entry === 'object' && entry.category) || category,
-    label: typeof entry === 'object' ? entry.label || null : null,
-    source: 'our-products'
+    label: typeof entry === 'object' && entry.label ? entry.label : null,
+    source
   };
 }
 
-function urlsToItems(urls, category) {
+function urlsToItems(urls, category, source = 'our-products') {
   if (!category || typeof category !== 'string' || !category.trim()) {
     throw new Error('category is required for urlsToItems');
   }
@@ -52,13 +54,26 @@ function urlsToItems(urls, category) {
   const items = [];
 
   for (let index = 0; index < urls.length; index++) {
-    const item = entryToItem(urls[index], index, category);
+    const item = entryToItem(urls[index], index, category, source);
     if (item) {
       items.push(item);
     }
   }
 
   return items;
+}
+
+function emptyProductsEnvelope({ source = 'our-products', category, domain }) {
+  if (!category || typeof category !== 'string' || !category.trim()) {
+    throw new Error('category is required for empty products envelope');
+  }
+
+  return {
+    source,
+    category,
+    domain: domain || 'www.amazon.in',
+    products: []
+  };
 }
 
 function loadProductsFromFile(filePath) {
@@ -117,5 +132,7 @@ function buildProductListPayload(meta, items) {
 module.exports = {
   urlsToItems,
   loadProductsFromFile,
-  buildProductListPayload
+  buildProductListPayload,
+  emptyProductsEnvelope,
+  normalizeProductUrl
 };

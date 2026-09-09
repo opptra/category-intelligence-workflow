@@ -22,6 +22,7 @@ function assembleReport({ meta, config, synthesized, imagePlan, backendKeywords 
       generated_at: new Date().toISOString(),
       competitor_count: meta.competitor_count,
       our_count: meta.our_count,
+      corpus_source: meta.corpus_source,
       model: config.model
     },
     summary: synthesized.summary,

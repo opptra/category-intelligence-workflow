@@ -67,9 +67,9 @@ function buildAnalysisConfig(overrides = {}) {
 
 function loadConfig(argv = process.argv) {
   const args = parseArgs(argv);
-  if (!args.competitors || !args.ours) {
+  if (!args.competitors) {
     throw new Error(
-      'Debug CLI requires --competitors <path> and --ours <path>. Prefer the orchestrator for the full pipeline.'
+      'Debug CLI requires --competitors <path> (and optionally --ours <path>). Prefer the orchestrator for the full pipeline.'
     );
   }
 

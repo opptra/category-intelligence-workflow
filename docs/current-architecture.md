@@ -1,6 +1,6 @@
 # Current architecture: how the pipeline works and where it breaks
 
-Reference document describing the system **as it exists today** (report `schema_version` 2.3). It covers the packages, the stage graph, the exact JSON handed between stages, how every number is calculated, and the seven faults that produce low-quality gallery slot plans.
+Reference document describing the system **as it exists today** (report `schema_version` 2.5). It covers the packages, the stage graph, the exact JSON handed between stages, how every number is calculated, and the seven faults that produce low-quality gallery slot plans.
 
 The improvement plan is a separate document. This file is purely a description of the present state.
 
@@ -13,7 +13,7 @@ Three Node packages in one repo, wired by the orchestrator.
 ```mermaid
 flowchart LR
   CLI["orchestrator/src/cli.js"] --> Run["orchestrator/src/run.js"]
-  Run --> Scrape["amazon-scrapper fetchCatalogData"]
+  Run --> Scrape["amazon-scrapper fetchCatalogData or fetchCompetitiveSetData"]
   Scrape --> Analyze["catalog-analysis runAnalysis"]
   Analyze --> Files["output: slug-analysis.json and slug-scrape.json"]
 ```
@@ -24,27 +24,31 @@ flowchart LR
 | `amazon-scrapper` | Puppeteer. Bestseller list, product details, reviews, gallery and A+ images |
 | `catalog-analysis` | Metrics, LLM research, vision, and the assembled intelligence report |
 
-Entry point:
+Entry points:
 
 ```bash
 cd orchestrator
+npm start -- --links-file rivals.csv [--url <product-url> ...]
 npm start -- --category-url <bestsellers-url> --url <product-url> [--url ...]
 ```
 
-Requires Amazon cookies for the scraper and `ANTHROPIC_API_KEY` for the analysis.
+`--links-file` is a CSV, newline URL list, or JSON of competitor PDP links. It skips the bestsellers page. `--url` (our listing) is required on the bestsellers path and optional on the links-file path. Requires Amazon cookies for the scraper and an LLM API key for the analysis.
 
 ---
 
 ## 2. What the scraper hands over
 
-`fetchCatalogData` returns two envelopes with identical shape:
+`fetchCatalogData` (bestsellers) and `fetchCompetitiveSetData` (links file) both return:
 
 ```json
 {
+  "corpus_source": "bestsellers | user_selected",
   "our_products": { "source": "our-products", "category": "...", "domain": "www.amazon.in", "products": [] },
-  "top_sellers":  { "source": "best-sellers", "category": "...", "domain": "www.amazon.in", "products": [] }
+  "top_sellers":  { "source": "best-sellers | user-selected", "category": "...", "domain": "www.amazon.in", "products": [] }
 }
 ```
+
+`our_products.products` may be empty. Category intelligence still runs; `catalog_gaps.applicable` is then `false`. `corpus_source: "user_selected"` means the competitive set came from a links file, not Amazon's bestsellers rank.
 
 Each product carries 24 keys:
 
@@ -291,11 +295,11 @@ Observed outcome in `output/bedding-duvet-cover-sets-analysis.json`: `target_cou
 
 ```mermaid
 flowchart LR
-  Report["report"] --> Meta["meta: schema_version, category, marketplace, counts, model"]
+  Report["report"] --> Meta["meta: schema_version, category, marketplace, counts, corpus_source, model"]
   Report --> Sum["summary: string"]
   Report --> Lex["category_lexicon: observations plus terms max 50"]
   Report --> Voc["voice_of_customer: observations plus signals max 40"]
-  Report --> Gaps["catalog_gaps: summary, metric_deltas, missing_visual_roles, missing_spec_keys, missing_lexicon_terms, our_norms, leader_norms"]
+  Report --> Gaps["catalog_gaps: applicable, summary, metric_deltas, missing_visual_roles, missing_spec_keys, missing_lexicon_terms, our_norms, leader_norms"]
   Report --> Plan["image_plan: gallery and aplus, each target_count, basis, fill_hint, slots[]"]
   Report --> Topics["topics x9: name, observations, actions[]"]
 ```

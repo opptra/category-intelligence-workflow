@@ -177,6 +177,8 @@ function trimTrackSummary(summary, { maxRoles = 12, maxNotes = 10, maxSignals = 
       prevalence: r.prevalence,
       typical_per_listing: r.typical_per_listing,
       typical_position: r.typical_position,
+      text_present_rate: r.text_present_rate ?? 0,
+      median_fact_count: r.median_fact_count ?? 0,
       content_tags: (r.content_tags || []).slice(0, 8),
       board_facts: (r.board_facts || []).slice(0, 8)
     })),
@@ -247,6 +249,8 @@ function formatCatalogGapsForResearch(catalogGaps) {
     };
   };
   return {
+    applicable: catalogGaps.applicable !== false,
+    reason: catalogGaps.reason || null,
     summary: catalogGaps.summary,
     metric_deltas: (catalogGaps.metric_deltas || []).slice(0, 12),
     missing_visual_roles: (catalogGaps.missing_visual_roles || []).slice(0, 10),
@@ -265,10 +269,12 @@ function buildSynthesisResearch({
   voiceOfCustomer,
   visualStandard,
   metricsContext,
-  catalogGaps
+  catalogGaps,
+  corpusSource
 }) {
   return {
     category,
+    corpus_source: corpusSource,
     n_leaders: competitors.length,
     n_ours: ours?.length || 0,
     metrics: metricsContext,

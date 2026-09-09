@@ -36,10 +36,17 @@ function emptyRoleBucket(canonical, kind) {
     total_cells: 0,
     positions: [],
     tagCounts: new Map(),
-    boardFacts: new Set(),
+    boardFactCounts: new Map(),
     boardLayouts: new Set(),
-    boardTypes: new Set()
+    boardTypes: new Set(),
+    textPresentCount: 0,
+    textFactCounts: []
   };
+}
+
+function cellHasOverlay(cell) {
+  if (cell?.text_present === true) return true;
+  return Array.isArray(cell?.board?.facts) && cell.board.facts.length > 0;
 }
 
 /**
@@ -95,10 +102,17 @@ function buildTrackSummary(results = [], { track, taxonomy = null } = {}) {
         bucket.tagCounts.set(t, (bucket.tagCounts.get(t) || 0) + 1);
       }
 
+      const facts = Array.isArray(cell.board?.facts) ? cell.board.facts : [];
+      if (cellHasOverlay(cell)) {
+        bucket.textPresentCount += 1;
+        bucket.textFactCounts.push(facts.length);
+      }
+
       if (cell.board) {
-        for (const fact of cell.board.facts || []) {
+        for (const fact of facts) {
           const f = String(fact || '').trim();
-          if (f) bucket.boardFacts.add(f);
+          if (!f) continue;
+          bucket.boardFactCounts.set(f, (bucket.boardFactCounts.get(f) || 0) + 1);
         }
         const layout = String(cell.board.layout || '').trim();
         if (layout) bucket.boardLayouts.add(layout);
@@ -153,6 +167,9 @@ function buildTrackSummary(results = [], { track, taxonomy = null } = {}) {
       const content_tags = [...bucket.tagCounts.entries()]
         .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
         .map(([tag]) => tag);
+      const board_facts = [...bucket.boardFactCounts.entries()]
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .map(([fact]) => fact);
       return {
         role: bucket.role,
         kind: bucket.kind,
@@ -163,8 +180,12 @@ function buildTrackSummary(results = [], { track, taxonomy = null } = {}) {
           ? round1(bucket.total_cells / listings_containing)
           : 0,
         typical_position: median(bucket.positions),
+        text_present_rate: bucket.total_cells > 0
+          ? round2(bucket.textPresentCount / bucket.total_cells)
+          : 0,
+        median_fact_count: median(bucket.textFactCounts) ?? 0,
         content_tags,
-        board_facts: [...bucket.boardFacts],
+        board_facts,
         board_layouts: [...bucket.boardLayouts],
         board_types: [...bucket.boardTypes]
       };
