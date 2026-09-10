@@ -37,6 +37,18 @@ function inferCorpusSource(scrapeResult) {
   return 'bestsellers';
 }
 
+function persistScrapeFiles(paths, scrapeResult) {
+  const category = scrapeResult?.top_sellers?.category
+    || scrapeResult?.our_products?.category
+    || 'category';
+  const slug = slugifyCategory(category);
+  const scrapePath = path.join(paths.outputDir, `${slug}-scrape.json`);
+  writeJson(scrapePath, scrapeResult);
+  writeJson(path.join(paths.root, `${slug}-scrape.json`), scrapeResult);
+  console.log(`Saved scrape JSON: ${scrapePath}`);
+  return scrapePath;
+}
+
 function loadScrapeEnvelope(scrapeFile) {
   const scrapePath = path.resolve(scrapeFile);
   if (!fs.existsSync(scrapePath)) {
@@ -204,6 +216,8 @@ async function runCatalogPipeline({
       saveStage(paths, 'scrape', scrapeResult);
     }
 
+    persistScrapeFiles(paths, scrapeResult);
+
     console.log('\n' + '='.repeat(60));
     console.log('ORCHESTRATOR — ANALYZE');
     console.log('='.repeat(60));
@@ -239,6 +253,13 @@ async function runCatalogPipeline({
       jobDir: paths.root
     };
   } catch (err) {
+    if (scrapeResult) {
+      try {
+        persistScrapeFiles(paths, scrapeResult);
+      } catch (_) {
+        // keep the original analysis/scrape error
+      }
+    }
     failJob(paths, currentStage, err);
     err.message = `${err.message} (job=${resolvedJobId}; resume with --job-id ${resolvedJobId})`;
     throw err;

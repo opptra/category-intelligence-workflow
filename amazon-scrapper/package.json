@@ -11,7 +11,7 @@
     "scrape:product-details": "node scripts/scrape-product-details.js",
     "scrape:reviews": "node scripts/scrape-product-details.js --reviews-only",
     "export-cookies": "node scripts/export-cookies.js",
-    "test": "node --test src/lib/links-file.test.js"
+    "test": "node --test src/lib/links-file.test.js src/lib/gallery-images.test.js"
   },
   "dependencies": {
     "puppeteer": "^25.3.0"

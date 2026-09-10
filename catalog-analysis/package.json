@@ -6,7 +6,7 @@
   "main": "src/index.js",
   "scripts": {
     "analyze": "node src/cli.js",
-    "test": "node --test src/pipeline/stages/load.test.js src/pipeline/stages/catalog-gaps.test.js src/domain/report-schema.test.js src/domain/corpus-wording.test.js"
+    "test": "node --test src/pipeline/stages/load.test.js src/pipeline/stages/catalog-gaps.test.js src/pipeline/stages/image-plan.test.js src/domain/report-schema.test.js src/domain/corpus-wording.test.js src/services/llm-openrouter.test.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",

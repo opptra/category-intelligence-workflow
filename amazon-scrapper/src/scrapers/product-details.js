@@ -1,5 +1,6 @@
 const { BrowserSession } = require('../lib/browser-session');
 const { extractASIN, extractDomain } = require('../lib/amazon-utils');
+const { assembleGalleryImageUrls, mapGalleryAlts } = require('../lib/gallery-images');
 const { ReviewsScraper } = require('./reviews');
 const { runWithConcurrency } = require('../lib/concurrency');
 const { CONCURRENCY, PAGE_TIMEOUT_MS } = require('../lib/constants');
@@ -64,7 +65,7 @@ class ProductDetailsScraper {
   }
 
   async extractProductData(page) {
-    return page.evaluate((aplusSelectors) => {
+    const details = await page.evaluate((aplusSelectors) => {
       const isVideoUrl = (url) =>
         !url || /play-button|\.mp4(?:\?|$)|\/video\/|PKplay|videoBlock|vse-vms/i.test(url);
 
@@ -73,49 +74,6 @@ class ProductDetailsScraper {
         /grey-pixel|transparent-pixel|\/G\/01\/x-locale\/common\/|spacer\.gif|data:image|\.svg(?:\?|$)/i.test(
           url
         );
-
-      const isGalleryImageUrl = (url) =>
-        /\/images\/I\//i.test(url) && /\.(?:jpe?g|png|webp)(?:\?|$)/i.test(url);
-
-      const toHiResImageUrl = (url) => {
-        if (!url || isVideoUrl(url) || isPlaceholderUrl(url)) {
-          return null;
-        }
-
-        return url
-          .replace(/\._[A-Z]{2}[0-9]+_[^.]+\./, '._AC_SL1500_.')
-          .replace(/\._SS\d+_\./, '._AC_SL1500_.')
-          .replace(/\._SX\d+_\./, '._AC_SL1500_.')
-          .replace(/\._SY\d+_\./, '._AC_SL1500_.')
-          .replace(/\._AC_UL\d+_SR\d+,\d+_\./, '._AC_SL1500_.');
-      };
-
-      const imageIdFromUrl = (url) => {
-        const match = url?.match(/\/images\/I\/([A-Za-z0-9+._-]+)/);
-        return match ? match[1].split('.')[0] : null;
-      };
-
-      const dedupeImageUrls = (urls) => {
-        const seen = new Set();
-        const result = [];
-
-        for (const rawUrl of urls) {
-          const url = toHiResImageUrl(rawUrl);
-          if (!url || !isGalleryImageUrl(url)) {
-            continue;
-          }
-
-          const imageId = imageIdFromUrl(url) || url;
-          if (seen.has(imageId)) {
-            continue;
-          }
-
-          seen.add(imageId);
-          result.push(url);
-        }
-
-        return result;
-      };
 
       const cleanDetailValue = (value) => {
         if (!value) {
@@ -260,45 +218,6 @@ class ProductDetailsScraper {
         return urls;
       };
 
-      const extractGalleryImagesFromScripts = (scriptTexts) => {
-        const urls = [];
-
-        for (const text of scriptTexts) {
-          const colorImagesMatch = text.match(/'colorImages'\s*:\s*\{[\s\S]*?\}\s*,\s*'/);
-          if (!colorImagesMatch) {
-            continue;
-          }
-
-          const block = colorImagesMatch[0];
-          for (const match of block.matchAll(/"(?:hiRes|large)":"(https:[^"\\]+)"/g)) {
-            urls.push(match[1].replace(/\\u002F/g, '/'));
-          }
-        }
-
-        return urls;
-      };
-      const collectImageSources = (root, selector) =>
-        Array.from(root.querySelectorAll(selector)).flatMap((el) => {
-          if (el.closest('.videoBlock, .vse-video, [data-video-url]')) {
-            return [];
-          }
-
-          const values = [
-            el.src,
-            el.getAttribute('data-src'),
-            el.getAttribute('data-old-hires'),
-            el.getAttribute('data-a-hires')
-          ];
-
-          const style = el.getAttribute('style') || '';
-          const bgMatch = style.match(/url\(["']?(https:[^"')]+)["']?\)/i);
-          if (bgMatch) {
-            values.push(bgMatch[1]);
-          }
-
-          return values.filter(Boolean);
-        });
-
       const title =
         document.querySelector('#productTitle')?.textContent?.trim() ||
         document.querySelector('#title span')?.textContent?.trim() ||
@@ -392,25 +311,27 @@ class ProductDetailsScraper {
         (script) => script.textContent || ''
       );
 
-      const galleryImageUrls = dedupeImageUrls([
-        document.querySelector('#landingImage')?.src,
-        document.querySelector('#imgTagWrapperId img')?.src,
-        ...collectImageSources(document, '#altImages img'),
-        ...extractGalleryImagesFromScripts(scriptTexts)
-      ]);
+      const colorImagesSnippet = scriptTexts.reduce((found, text) => {
+        if (found) return found;
+        const idx = text.search(/['"]colorImages['"]\s*:/);
+        if (idx < 0) return '';
+        return text.slice(idx, idx + 400000);
+      }, '');
 
-      const altById = new Map();
-      for (const img of document.querySelectorAll('#altImages img, #landingImage, #imgTagWrapperId img')) {
-        const url = toHiResImageUrl(img.src || img.getAttribute('data-old-hires') || img.getAttribute('data-a-hires'));
-        const alt = (img.getAttribute('alt') || '').replace(/\s+/g, ' ').trim();
-        if (!url || !alt) continue;
-        const imageId = imageIdFromUrl(url) || url;
-        if (!altById.has(imageId)) altById.set(imageId, alt);
-      }
-      const productImageAlts = galleryImageUrls.map((url) => {
-        const imageId = imageIdFromUrl(url) || url;
-        return altById.get(imageId) || '';
-      });
+      const isGalleryThumb = (el) =>
+        Boolean(el) && !el.closest('.videoBlock, .vse-video, [data-video-url], .videoThumbnail');
+
+      const altThumbs = Array.from(document.querySelectorAll('#altImages img')).filter(isGalleryThumb);
+      const pickThumbUrl = (el) =>
+        el.getAttribute('data-old-hires')
+        || el.getAttribute('data-a-hires')
+        || el.getAttribute('data-src')
+        || el.src
+        || null;
+      const altImageUrls = altThumbs.map(pickThumbUrl).filter(Boolean);
+      const altTextsInOrder = altThumbs.map((el) =>
+        (el.getAttribute('alt') || '').replace(/\s+/g, ' ').trim()
+      );
 
       const hasVideo = Boolean(
         document.querySelector(
@@ -532,14 +453,32 @@ class ProductDetailsScraper {
         rating: parseRatingNumber(ratingLabel),
         review_count_text: reviewCountText,
         review_count: parseReviewCountNumber(reviewCountText),
-        product_images: galleryImageUrls,
-        product_image_alts: productImageAlts,
+        product_images: [],
+        product_image_alts: [],
+        _gallerySources: {
+          colorImagesSnippet,
+          altImageUrls,
+          altTextsInOrder,
+          landingImageUrl: document.querySelector('#landingImage')?.src || null,
+          imgTagUrl: document.querySelector('#imgTagWrapperId img')?.src || null
+        },
         has_video: hasVideo,
         aplus_images: aplusImageUrls,
         aplus_modules: aplusModules,
         aplus_text_blocks: [...new Set(aplusTextBlocks)]
       };
     }, APLUS_SELECTORS);
+
+    const sources = details._gallerySources || {};
+    const product_images = assembleGalleryImageUrls(sources);
+    const product_image_alts = mapGalleryAlts(product_images, sources.altTextsInOrder);
+    delete details._gallerySources;
+
+    return {
+      ...details,
+      product_images,
+      product_image_alts
+    };
   }
 
   async scrapeProduct(page, item, options = {}) {

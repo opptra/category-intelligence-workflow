@@ -71,6 +71,11 @@ function tryParseJson(raw) {
 function coerceToolPayload(parsed, toolName) {
   if (!parsed || typeof parsed !== 'object') return parsed;
 
+  // Already the expected composition/report shape — do not unwrap a wrapper key.
+  if (!Array.isArray(parsed) && (parsed.gallery != null || parsed.aplus != null)) {
+    return parsed;
+  }
+
   // Some providers wrap the payload: { synthesize_topics: { topics: [...] } }
   if (parsed[toolName] && typeof parsed[toolName] === 'object') {
     return parsed[toolName];
@@ -107,6 +112,13 @@ function extractToolArguments(response, toolName) {
   }
 
   const toolCalls = message?.tool_calls || [];
+  if (finishReason === 'length' || finishReason === 'max_tokens') {
+    throw new Error(
+      `LLM tool call truncated for ${toolName} (finish_reason=${finishReason}). `
+      + 'Partial JSON is not accepted — raise maxTokens.'
+    );
+  }
+
   const toolCall = toolCalls.find((call) => {
     const name = call.function?.name || call.name || '';
     return name === toolName || name.endsWith(`.${toolName}`) || name.replace(/-/g, '_') === toolName;
@@ -331,4 +343,4 @@ function createOpenRouterClient(config) {
   };
 }
 
-module.exports = { createOpenRouterClient };
+module.exports = { createOpenRouterClient, coerceToolPayload, extractToolArguments };

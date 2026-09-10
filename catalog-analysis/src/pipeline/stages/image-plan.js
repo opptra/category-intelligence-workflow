@@ -203,6 +203,63 @@ function indexRolesByKey(roles) {
   return map;
 }
 
+function slotFromMatchedRole(matched, priority, order) {
+  return {
+    role: matched.canonical,
+    kind: matched.kind || 'supporting',
+    priority: priority === 'extended' ? 'extended' : 'core',
+    order,
+    evidence: {
+      prevalence: matched.prevalence,
+      per_listing: matched.per_listing,
+      typical_position: matched.typical_position
+    },
+    _content_tags: matched.content_tags || [],
+    _board_facts: matched.board_facts || [],
+    _board_layouts: matched.board_layouts || [],
+    _board_types: matched.board_types || [],
+    _text_present_rate: matched.text_present_rate ?? 0,
+    _median_fact_count: matched.median_fact_count ?? 0
+  };
+}
+
+function describeTrack(track) {
+  if (track == null) return 'missing';
+  if (Array.isArray(track)) return `array(len=${track.length})`;
+  if (typeof track !== 'object') return typeof track;
+  const slots = track.slots;
+  return (
+    `{keys=[${Object.keys(track).join(',')}]`
+    + `; recommended_build=${track.recommended_build ?? 'n/a'}`
+    + `; slots=${Array.isArray(slots) ? `array(${slots.length})` : String(typeof slots)}}`
+  );
+}
+
+function describeComposition(composition) {
+  if (!composition || typeof composition !== 'object') {
+    return `type=${typeof composition}`;
+  }
+  return (
+    `keys=[${Object.keys(composition).join(',')}]`
+    + `; gallery=${describeTrack(composition.gallery)}`
+    + `; aplus=${describeTrack(composition.aplus)}`
+  );
+}
+
+function requireCompositionTracks(composition) {
+  const gallery = composition?.gallery;
+  const aplus = composition?.aplus;
+  const gallerySlots = Array.isArray(gallery?.slots) ? gallery.slots.length : 0;
+  const aplusSlots = Array.isArray(aplus?.slots) ? aplus.slots.length : 0;
+  if (gallerySlots > 0 && aplusSlots > 0) return;
+
+  throw new Error(
+    'image_plan composition tool payload is missing gallery/aplus slots'
+    + ` (${describeComposition(composition)}).`
+    + ' This is a tool-payload shape/parse failure, not a category with zero image roles.'
+  );
+}
+
 function emptyTrackPlan(surface, reason) {
   const observedKey = surface === 'gallery' ? 'listings_analyzed' : 'modules_analyzed';
   const countKey = surface === 'gallery' ? 'image_count' : 'module_count';
@@ -349,32 +406,19 @@ function finalizeCompositionTrack(rawTrack, evidenceSurface, surface) {
     return ao - bo;
   });
 
+  const acceptedKeys = new Set();
   for (const raw of orderedRaw) {
-    const matched = roleMap.get(normalizeRoleKey(raw?.role));
+    const key = normalizeRoleKey(raw?.role);
+    const matched = roleMap.get(key);
     if (!matched) {
       if (raw?.role) dropped.push(String(raw.role));
       continue;
     }
-    accepted.push({
-      role: matched.canonical,
-      kind: matched.kind || 'supporting',
-      priority: raw.priority === 'extended' ? 'extended' : 'core',
-      order: accepted.length + 1,
-      evidence: {
-        prevalence: matched.prevalence,
-        per_listing: matched.per_listing,
-        typical_position: matched.typical_position
-      },
-      _content_tags: matched.content_tags || [],
-      _board_facts: matched.board_facts || [],
-      _board_layouts: matched.board_layouts || [],
-      _board_types: matched.board_types || [],
-      _text_present_rate: matched.text_present_rate ?? 0,
-      _median_fact_count: matched.median_fact_count ?? 0
-    });
+    if (acceptedKeys.has(key)) continue;
+    acceptedKeys.add(key);
+    accepted.push(slotFromMatchedRole(matched, raw.priority, accepted.length + 1));
   }
 
-  // No silent dump-all-roles fallback — fail so we can see why composition missed.
   if (!accepted.length) {
     const rawRoles = (rawTrack?.slots || []).map((s) => s?.role).filter(Boolean);
     throw new Error(
@@ -382,7 +426,8 @@ function finalizeCompositionTrack(rawTrack, evidenceSurface, surface) {
       + ` (raw_slots=${rawRoles.length || 0}`
       + `; dropped=[${dropped.slice(0, 12).join('; ')}]`
       + `; observed_roles=${roles.length}`
-      + `; recommended_build=${rawTrack?.recommended_build ?? 'n/a'})`
+      + `; recommended_build=${rawTrack?.recommended_build ?? 'n/a'}`
+      + `; track_shape=${describeTrack(rawTrack)})`
     );
   }
 
@@ -445,6 +490,7 @@ Decide gallery and A+ slot composition from this evidence.
 - Do not invent roles that are not in the evidence`,
       maxTokens: 4096
     });
+    requireCompositionTracks(composition);
   }
 
   const galleryDraft = finalizeCompositionTrack(
@@ -492,6 +538,8 @@ module.exports = {
   buildImagePlan,
   buildEvidencePayload,
   finalizeCompositionTrack,
+  requireCompositionTracks,
+  describeComposition,
   sanitizeBrief,
   stripSpecifics,
   fallbackContent,
